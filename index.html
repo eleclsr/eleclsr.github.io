@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PLC 기반 컨베이어벨트 자동화 시스템 — 캡스톤 디자인</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://www.x3dom.org/download/x3dom.css">
+
+<style>
+  :root{
+    --bg: #10141a;
+    --panel: #171d25;
+    --panel-2: #1c232c;
+    --rail: #2b3542;
+    --rail-light: #3a4552;
+    --ink: #e7ecf1;
+    --muted: #8695a3;
+    --amber: #f0a83c;
+    --blue: #4a97d6;
+    --green: #4caf7d;
+    --sans: 'IBM Plex Sans KR', 'IBM Plex Sans', sans-serif;
+    --cond: 'IBM Plex Sans Condensed', 'IBM Plex Sans KR', sans-serif;
+    --mono: 'IBM Plex Mono', monospace;
+  }
+
+  *{ box-sizing: border-box; }
+  html{ scroll-behavior: smooth; }
+
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    display: grid;
+    grid-template-columns: 32px minmax(0,1080px) 32px;
+    justify-content: center;
+  }
+
+  a{ color: var(--blue); }
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible{
+    outline: 2px solid var(--amber);
+    outline-offset: 3px;
+  }
+
+  /* ---------- vertical rails (ladder power rails) ---------- */
+  .rail{
+    position: relative;
+    background: repeating-linear-gradient(
+      to bottom, var(--rail) 0 2px, transparent 2px 100%
+    );
+    width: 100%;
+  }
+  .rail::before{
+    content:"";
+    position:absolute; top:0; bottom:0; left:50%;
+    width:2px; background: var(--rail);
+    transform: translateX(-50%);
+  }
+  @media (max-width: 760px){
+    body{ grid-template-columns: 14px minmax(0,1fr) 0px; }
+    .rail--right{ display:none; }
+  }
+
+  main{ min-width:0; padding: 0 20px; }
+
+  /* ---------- rung (section) numbering ---------- */
+  .rung{
+    position: relative;
+    padding: 72px 0 8px;
+    border-top: 1px solid var(--rail);
+  }
+  .rung-num{
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    position: absolute;
+    top: -13px;
+    left: 0;
+    background: var(--bg);
+    padding-right: 10px;
+  }
+  h2.rung-title{
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: clamp(24px, 3.4vw, 34px);
+    margin: 6px 0 28px;
+    color: var(--ink);
+  }
+  p.lede{
+    max-width: 62ch;
+    color: var(--muted);
+    font-size: 16px;
+    margin: -14px 0 32px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{ padding: 64px 0 40px; }
+  .hero-eyebrow{
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--amber);
+    margin: 0 0 14px;
+  }
+  h1{
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: clamp(32px, 6vw, 56px);
+    line-height: 1.08;
+    margin: 0 0 20px;
+    max-width: 16ch;
+  }
+  .hero-sub{
+    max-width: 56ch;
+    font-size: 17px;
+    color: #c3cdd6;
+    margin: 0 0 40px;
+  }
+  .hero-diagram{ max-width: 640px; }
+  .hero-diagram svg{ width:100%; height:auto; display:block; }
+  .hero-caption{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+  }
+
+  /* ---------- nameplate panel ---------- */
+  .nameplate{
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--rail-light);
+    border-radius: 3px;
+    padding: 28px 28px 22px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03), inset 0 -1px 0 rgba(0,0,0,0.4);
+  }
+  .nameplate::before, .nameplate::after,
+  .nameplate .rivet-tr, .nameplate .rivet-bl{
+    content:"";
+    position:absolute;
+    width:6px; height:6px;
+    border-radius:50%;
+    background: var(--rail-light);
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.5);
+  }
+  .nameplate::before{ top:10px; left:10px; }
+  .nameplate::after{ bottom:10px; right:10px; }
+  .nameplate .rivet-tr{ top:10px; right:10px; }
+  .nameplate .rivet-bl{ bottom:10px; left:10px; }
+
+  .spec-table{ width:100%; border-collapse: collapse; }
+  .spec-table tr{ border-bottom: 1px solid var(--rail); }
+  .spec-table tr:last-child{ border-bottom:none; }
+  .spec-table th, .spec-table td{
+    text-align: left;
+    padding: 13px 10px;
+    vertical-align: top;
+    font-size: 14.5px;
+  }
+  .spec-table th{
+    width: 30%;
+    font-family: var(--mono);
+    font-weight: 500;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .spec-table td{ color: var(--ink); }
+
+  /* ---------- architecture diagram ---------- */
+  .arch-wrap{
+    background: var(--panel);
+    border: 1px solid var(--rail-light);
+    border-radius: 3px;
+    padding: 28px;
+    overflow-x: auto;
+  }
+  .arch-wrap svg{ min-width: 640px; }
+
+  /* ---------- modeling stage cards ---------- */
+  .stage-grid{
+    display: grid;
+    gap: 20px;
+    grid-template-columns: 1fr;
+  }
+  .stage-card{
+    background: var(--panel);
+    border: 1px solid var(--rail-light);
+    border-radius: 3px;
+    padding: 24px;
+  }
+  .stage-head{
+    display:flex;
+    align-items:baseline;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .stage-tag{
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--amber);
+    flex-shrink:0;
+  }
+  .stage-head h3{
+    font-family: var(--cond);
+    font-weight: 600;
+    font-size: 19px;
+    margin:0;
+  }
+  .stage-desc{
+    color: var(--muted);
+    font-size: 14.5px;
+    margin: 0 0 16px;
+    max-width: 68ch;
+  }
+  .stage-media{
+    background: var(--bg);
+    border: 1px solid var(--rail);
+    border-radius: 3px;
+    padding: 16px;
+  }
+  .blueprint svg{ width:100%; height:auto; display:block; }
+
+  .viewer-box{
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #0b0e12;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .viewer-box x3d{ width:100%!important; height:100%!important; }
+  .viewer-hint{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+  }
+  .hud{
+    position:absolute; top:10px; left:12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    display:flex; align-items:center; gap:6px;
+    pointer-events:none;
+    z-index: 2;
+  }
+  .hud .dot{
+    width:7px; height:7px; border-radius:50%;
+    background: var(--green);
+    animation: blink 1.6s steps(1) infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0.15; } }
+
+  /* ---------- footer ---------- */
+  footer.rung{ padding-bottom: 60px; }
+  .credit-grid{
+    display:grid;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 24px;
+    font-size: 14px;
+  }
+  .credit-grid dt{
+    font-family: var(--mono);
+    color: var(--muted);
+    font-size: 12.5px;
+    margin-bottom: 4px;
+  }
+  .credit-grid dd{ margin:0; color: var(--ink); }
+
+  @media (min-width: 640px){
+    .stage-grid{ grid-template-columns: 1fr 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .hud .dot{ animation:none; }
+    .flow-pulse, .flow-line{ animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="rail rail--left" aria-hidden="true"></div>
+
+<main>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <p class="hero-eyebrow">전기공학과 2학년 · 캡스톤 디자인</p>
+    <h1>PLC 기반 컨베이어벨트 자동화 시스템</h1>
+    <p class="hero-sub">
+      투입, 이송, 분류, 배출로 이어지는 물류 라인 한 사이클을 PLC 제어로 구현하고,
+      설계 과정을 X3DOM과 Three.js로 웹에 공개합니다.
+    </p>
+
+    <div class="hero-diagram">
+      <svg viewBox="0 0 640 170" role="img" aria-labelledby="ladderTitle ladderDesc">
+        <title id="ladderTitle">기동 정지 회로 래더 다이어그램</title>
+        <desc id="ladderDesc">시작 버튼, 정지 버튼, 모터 코일로 구성된 자기유지 회로</desc>
+
+        <!-- power rails -->
+        <line x1="20" y1="15" x2="20" y2="155" stroke="#3a4552" stroke-width="3"/>
+        <line x1="620" y1="15" x2="620" y2="155" stroke="#3a4552" stroke-width="3"/>
+
+        <!-- main rung -->
+        <path id="rungPath" d="M20,60 H85 M105,60 H195 M215,60 H305 M325,60 H480 M480,60 H480"
+              stroke="#3a4552" stroke-width="2.5" fill="none"/>
+        <line x1="480" y1="60" x2="620" y2="60" stroke="#3a4552" stroke-width="2.5"/>
+
+        <!-- seal-in branch -->
+        <path d="M20,110 H195 M215,110 H305 M325,110 H480" stroke="#3a4552" stroke-width="2.5" fill="none"/>
+        <line x1="85" y1="60" x2="85" y2="110" stroke="#3a4552" stroke-width="2"/>
+        <line x1="305" y1="60" x2="305" y2="110" stroke="#3a4552" stroke-width="2"/>
+
+        <!-- animated current flow -->
+        <path class="flow-line" d="M20,60 H85 M85,60 H195 M195,60 H305 M305,60 H480 M480,60 H620"
+              stroke="#f0a83c" stroke-width="2.5" fill="none"
+              stroke-dasharray="8 10" stroke-linecap="round">
+          <animate attributeName="stroke-dashoffset" from="0" to="-360" dur="3.2s" repeatCount="indefinite"/>
+        </path>
+
+        <!-- PB1 start contact (NO) -->
+        <line x1="85" y1="50" x2="85" y2="70" stroke="#e7ecf1" stroke-width="2"/>
+        <line x1="105" y1="50" x2="105" y2="70" stroke="#e7ecf1" stroke-width="2"/>
+        <text x="95" y="40" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#8695a3">PB1</text>
+
+        <!-- PB2 stop contact (NC) -->
+        <line x1="195" y1="50" x2="195" y2="70" stroke="#e7ecf1" stroke-width="2"/>
+        <line x1="215" y1="50" x2="215" y2="70" stroke="#e7ecf1" stroke-width="2"/>
+        <line x1="191" y1="72" x2="219" y2="48" stroke="#e7ecf1" stroke-width="1.6"/>
+        <text x="205" y="40" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#8695a3">PB2</text>
+
+        <!-- seal-in contact M -->
+        <line x1="215" y1="100" x2="215" y2="120" stroke="#4a97d6" stroke-width="2"/>
+        <line x1="235" y1="100" x2="235" y2="120" stroke="#4a97d6" stroke-width="2"/>
+        <text x="225" y="135" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#8695a3">M</text>
+        <line x1="195" y1="110" x2="215" y2="110" stroke="#3a4552" stroke-width="2.5"/>
+        <line x1="235" y1="110" x2="305" y2="110" stroke="#3a4552" stroke-width="2.5"/>
+
+        <!-- coil -->
+        <circle cx="480" cy="60" r="20" fill="#171d25" stroke="#f0a83c" stroke-width="2.5"/>
+        <text x="480" y="65" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#f0a83c">M</text>
+      </svg>
+      <p class="hero-caption">기동/정지 자기유지 회로 — 실제 프로그램은 PLC 소프트웨어 화면으로 교체하세요</p>
+    </div>
+  </section>
+
+  <!-- ============ 01 개요 ============ -->
+  <section class="rung" id="overview">
+    <p class="rung-num">01</p>
+    <h2 class="rung-title">프로젝트 개요</h2>
+    <p class="lede">
+      과제의 목적과 범위, 사용 장비를 장비 명판 형식으로 정리했습니다.
+      아래 값은 예시이며 실제 과제 내용으로 바꿔 사용하세요.
+    </p>
+
+    <div class="nameplate">
+      <span class="rivet-tr" aria-hidden="true"></span>
+      <span class="rivet-bl" aria-hidden="true"></span>
+      <table class="spec-table">
+        <tbody>
+          <tr>
+            <th>과제명</th>
+            <td>PLC 기반 스마트 컨베이어벨트 제어 시스템</td>
+          </tr>
+          <tr>
+            <th>목표</th>
+            <td>투입 · 이송 · 분류 · 배출 전 공정을 PLC로 자동 제어하고, 기구 설계 결과를 웹 3D로 공개한다</td>
+          </tr>
+          <tr>
+            <th>팀 구성</th>
+            <td>전기공학과 2학년 · 팀원 이름을 입력하세요</td>
+          </tr>
+          <tr>
+            <th>개발 기간</th>
+            <td>2026. 09 – 2026. 12 (1학기 캡스톤)</td>
+          </tr>
+          <tr>
+            <th>제어기</th>
+            <td>PLC — 사용 모델명을 입력하세요 (예: XGB 시리즈)</td>
+          </tr>
+          <tr>
+            <th>액추에이터</th>
+            <td>3상 유도전동기 + 인버터, 감속기</td>
+          </tr>
+          <tr>
+            <th>센서</th>
+            <td>광전 센서(투입/배출 감지), 근접 센서(위치 확인)</td>
+          </tr>
+          <tr>
+            <th>소프트웨어</th>
+            <td>PLC 프로그래밍 툴, Three.js, X3DOM</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 02 시스템 구성 ============ -->
+  <section class="rung" id="architecture">
+    <p class="rung-num">02</p>
+    <h2 class="rung-title">시스템 구성</h2>
+    <p class="lede">
+      센서 신호가 PLC로 들어가고, PLC가 구동부를 제어해 벨트를 움직이는 전체 신호 흐름입니다.
+    </p>
+
+    <div class="arch-wrap">
+      <svg viewBox="0 0 900 220" role="img" aria-label="시스템 블록 다이어그램: 투입 센서, PLC, 인버터 및 모터, 컨베이어 벨트, 배출 센서 순서로 연결되고 배출 센서 신호가 PLC로 피드백된다">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#4a97d6"/>
+          </marker>
+        </defs>
+
+        <!-- feedback line: 배출 센서 -> PLC -->
+        <path d="M775,90 V30 H300 V78" fill="none" stroke="#3a4552" stroke-width="2" stroke-dasharray="4 5" marker-end="url(#arrow)"/>
+        <text x="540" y="22" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#8695a3">배출 신호 피드백</text>
+
+        <!-- blocks -->
+        <g font-family="IBM Plex Sans KR" font-size="14" fill="#e7ecf1">
+          <rect x="10" y="90" width="130" height="60" rx="2" fill="#1c232c" stroke="#3a4552" stroke-width="1.5"/>
+          <text x="75" y="125" text-anchor="middle">투입 센서</text>
+
+          <rect x="220" y="80" width="140" height="80" rx="2" fill="#1c232c" stroke="#f0a83c" stroke-width="1.5"/>
+          <text x="290" y="125" text-anchor="middle">PLC</text>
+
+          <rect x="440" y="90" width="150" height="60" rx="2" fill="#1c232c" stroke="#3a4552" stroke-width="1.5"/>
+          <text x="515" y="115" text-anchor="middle">인버터 · 모터</text>
+          <text x="515" y="132" text-anchor="middle">구동부</text>
+
+          <rect x="660" y="90" width="140" height="60" rx="2" fill="#1c232c" stroke="#3a4552" stroke-width="1.5"/>
+          <text x="730" y="115" text-anchor="middle">컨베이어</text>
+          <text x="730" y="132" text-anchor="middle">벨트</text>
+        </g>
+
+        <!-- forward flow -->
+        <line x1="140" y1="120" x2="215" y2="120" stroke="#4a97d6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="360" y1="120" x2="435" y2="120" stroke="#4a97d6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="590" y1="120" x2="655" y2="120" stroke="#4a97d6" stroke-width="2" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ============ 03 3D 모델링 단계 ============ -->
+  <section class="rung" id="modeling">
+    <p class="rung-num">03</p>
+    <h2 class="rung-title">3D 형상 모델링 단계</h2>
+    <p class="lede">
+      프레임 설계부터 통합 조립까지 네 단계로 진행합니다. 앞 두 단계는 도면, 뒤 두 단계는
+      X3DOM과 Three.js로 만든 실제 3D 뷰어입니다.
+    </p>
+
+    <div class="stage-grid">
+
+      <!-- stage 1 -->
+      <article class="stage-card">
+        <div class="stage-head">
+          <span class="stage-tag">STAGE 01</span>
+          <h3>프레임 · 롤러 설계</h3>
+        </div>
+        <p class="stage-desc">벨트를 지지하는 좌우 프레임과 구동/종동 롤러의 치수를 확정합니다.</p>
+        <div class="stage-media blueprint">
+          <svg viewBox="0 0 500 220" role="img" aria-label="프레임과 롤러 측면 도면">
+            <rect x="20" y="90" width="460" height="8" fill="none" stroke="#4a97d6" stroke-width="1.5"/>
+            <rect x="20" y="130" width="460" height="8" fill="none" stroke="#4a97d6" stroke-width="1.5"/>
+            <circle cx="60" cy="110" r="20" fill="none" stroke="#e7ecf1" stroke-width="1.5"/>
+            <circle cx="440" cy="110" r="20" fill="none" stroke="#e7ecf1" stroke-width="1.5"/>
+            <line x1="20" y1="60" x2="480" y2="60" stroke="#3a4552" stroke-width="1" stroke-dasharray="3 4"/>
+            <line x1="20" y1="55" x2="20" y2="65" stroke="#3a4552"/>
+            <line x1="480" y1="55" x2="480" y2="65" stroke="#3a4552"/>
+            <text x="250" y="45" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#8695a3">L = 1200 mm</text>
+          </svg>
+        </div>
+      </article>
+
+      <!-- stage 2 -->
+      <article class="stage-card">
+        <div class="stage-head">
+          <span class="stage-tag">STAGE 02</span>
+          <h3>구동부 · 모터 마운트</h3>
+        </div>
+        <p class="stage-desc">모터와 감속기의 설치 위치, 벨트 장력 조정 구조를 결정합니다.</p>
+        <div class="stage-media blueprint">
+          <svg viewBox="0 0 500 220" role="img" aria-label="모터 마운트 정면 도면">
+            <rect x="200" y="70" width="90" height="70" fill="none" stroke="#e7ecf1" stroke-width="1.5"/>
+            <circle cx="245" cy="105" r="14" fill="none" stroke="#f0a83c" stroke-width="1.5"/>
+            <rect x="150" y="150" width="200" height="14" fill="none" stroke="#4a97d6" stroke-width="1.5"/>
+            <line x1="245" y1="140" x2="245" y2="150" stroke="#e7ecf1" stroke-width="1.5"/>
+            <text x="245" y="185" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#8695a3">MOTOR MOUNT</text>
+          </svg>
+        </div>
+      </article>
+
+      <!-- stage 3 : x3dom -->
+      <article class="stage-card">
+        <div class="stage-head">
+          <span class="stage-tag">STAGE 03</span>
+          <h3>X3D 프로토타입</h3>
+        </div>
+        <p class="stage-desc">치수 확정 전, 선언형 X3D 지오메트리로 형상 비율을 빠르게 검토합니다.</p>
+        <div class="stage-media">
+          <div class="viewer-box">
+            <x3d>
+              <scene>
+                <background skycolor="0.063 0.078 0.102"></background>
+                <viewpoint position="0 4 9" orientation="1 0 0 -0.35" fieldofview="0.9"></viewpoint>
+
+                <transform translation="-4.2 0.3 0">
+                  <shape>
+                    <appearance><material diffusecolor="0.29 0.59 0.84"></material></appearance>
+                    <box size="0.3 0.6 8.4"></box>
+                  </shape>
+                </transform>
+                <transform translation="4.2 0.3 0">
+                  <shape>
+                    <appearance><material diffusecolor="0.29 0.59 0.84"></material></appearance>
+                    <box size="0.3 0.6 8.4"></box>
+                  </shape>
+                </transform>
+
+                <transform translation="0 0.65 0">
+                  <shape>
+                    <appearance><material diffusecolor="0.11 0.13 0.15"></material></appearance>
+                    <box size="8.1 0.08 8.4"></box>
+                  </shape>
+                </transform>
+
+                <transform translation="0 0.3 -4" rotation="0 0 1 1.5708">
+                  <shape>
+                    <appearance><material diffusecolor="0.91 0.66 0.24"></material></appearance>
+                    <cylinder height="8.4" radius="0.35"></cylinder>
+                  </shape>
+                </transform>
+                <transform translation="0 0.3 4" rotation="0 0 1 1.5708">
+                  <shape>
+                    <appearance><material diffusecolor="0.91 0.66 0.24"></material></appearance>
+                    <cylinder height="8.4" radius="0.35"></cylinder>
+                  </shape>
+                </transform>
+              </scene>
+            </x3d>
+          </div>
+          <p class="viewer-hint">드래그: 회전 / 스크롤: 확대·축소 — X3DOM 뷰어</p>
+        </div>
+      </article>
+
+      <!-- stage 4 : three.js -->
+      <article class="stage-card">
+        <div class="stage-head">
+          <span class="stage-tag">STAGE 04</span>
+          <h3>통합 조립 · 인터랙티브 뷰어</h3>
+        </div>
+        <p class="stage-desc">최종 조립 형상을 Three.js로 옮겨 벨트 이동과 센서 감지를 실시간으로 표현합니다.</p>
+        <div class="stage-media">
+          <div class="viewer-box" id="threeViewer">
+            <div class="hud"><span class="dot" aria-hidden="true"></span>RUN</div>
+          </div>
+          <p class="viewer-hint">드래그: 회전 / 스크롤: 확대·축소 — Three.js 뷰어</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="rung">
+    <p class="rung-num">04</p>
+    <h2 class="rung-title">과목 정보</h2>
+    <dl class="credit-grid">
+      <div>
+        <dt>과목</dt>
+        <dd>캡스톤 디자인 (전기공학과 2학년)</dd>
+      </div>
+      <div>
+        <dt>지도교수</dt>
+        <dd>교수님 성함을 입력하세요</dd>
+      </div>
+      <div>
+        <dt>팀원</dt>
+        <dd>팀원 이름을 입력하세요</dd>
+      </div>
+      <div>
+        <dt>저장소</dt>
+        <dd><a href="#">GitHub 저장소 링크를 입력하세요</a></dd>
+      </div>
+    </dl>
+  </footer>
+
+</main>
+
+<div class="rail rail--right" aria-hidden="true"></div>
+
+<!-- X3DOM runtime -->
+<script src="https://www.x3dom.org/download/x3dom.js"></script>
+
+<!-- Three.js via ES module import map -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+  import * as THREE from 'three';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+  const container = document.getElementById('threeViewer');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0e12);
+
+  const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+  camera.position.set(6, 4.5, 8);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  container.appendChild(renderer.domElement);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.target.set(0, 0.6, 0);
+  controls.minDistance = 4;
+  controls.maxDistance = 16;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  dirLight.position.set(5, 8, 4);
+  scene.add(dirLight);
+  const fillLight = new THREE.DirectionalLight(0x4a97d6, 0.3);
+  fillLight.position.set(-5, 3, -4);
+  scene.add(fillLight);
+
+  const conveyor = new THREE.Group();
+  scene.add(conveyor);
+
+  // side frame rails
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x4a97d6, metalness: 0.4, roughness: 0.5 });
+  [-2.1, 2.1].forEach((x) => {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.3, 6.2), frameMat);
+    rail.position.set(x, 0.15, 0);
+    conveyor.add(rail);
+  });
+
+  // cross braces
+  const braceMat = new THREE.MeshStandardMaterial({ color: 0x2b3542, metalness: 0.3, roughness: 0.6 });
+  [-2.6, 0, 2.6].forEach((z) => {
+    const brace = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.1, 0.1), braceMat);
+    brace.position.set(0, 0.05, z);
+    conveyor.add(brace);
+  });
+
+  // legs
+  [[-1.9, -2.9], [1.9, -2.9], [-1.9, 2.9], [1.9, 2.9]].forEach(([x, z]) => {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.2, 0.12), braceMat);
+    leg.position.set(x, -0.6, z);
+    conveyor.add(leg);
+  });
+
+  // rollers
+  const rollerMat = new THREE.MeshStandardMaterial({ color: 0xf0a83c, metalness: 0.6, roughness: 0.35 });
+  const rollerGeo = new THREE.CylinderGeometry(0.18, 0.18, 4.3, 24);
+  const rollers = [];
+  [-2.9, 2.9].forEach((z) => {
+    const roller = new THREE.Mesh(rollerGeo, rollerMat);
+    roller.rotation.z = Math.PI / 2;
+    roller.position.set(0, 0.15, z);
+    conveyor.add(roller);
+    rollers.push(roller);
+  });
+
+  // belt surface with a stripe texture, animated for motion
+  const stripeCanvas = document.createElement('canvas');
+  stripeCanvas.width = 64; stripeCanvas.height = 64;
+  const ctx = stripeCanvas.getContext('2d');
+  ctx.fillStyle = '#12161c'; ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = '#20262f';
+  for (let i = 0; i < 64; i += 16) ctx.fillRect(0, i, 64, 4);
+  const stripeTexture = new THREE.CanvasTexture(stripeCanvas);
+  stripeTexture.wrapS = stripeTexture.wrapT = THREE.RepeatWrapping;
+  stripeTexture.repeat.set(1, 8);
+
+  const belt = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.0, 6.0),
+    new THREE.MeshStandardMaterial({ map: stripeTexture, roughness: 0.9, side: THREE.DoubleSide })
+  );
+  belt.rotation.x = -Math.PI / 2;
+  belt.position.set(0, 0.28, 0);
+  conveyor.add(belt);
+
+  // motor block
+  const motorMat = new THREE.MeshStandardMaterial({ color: 0x2b3542, metalness: 0.5, roughness: 0.4 });
+  const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.7, 20), motorMat);
+  motor.rotation.z = Math.PI / 2;
+  motor.position.set(-2.7, 0.15, 2.9);
+  conveyor.add(motor);
+
+  // discharge sensor indicator
+  const sensor = new THREE.Mesh(
+    new THREE.SphereGeometry(0.08, 16, 16),
+    new THREE.MeshStandardMaterial({ color: 0x4caf7d, emissive: 0x4caf7d, emissiveIntensity: 1.2 })
+  );
+  sensor.position.set(2.15, 0.5, 3.0);
+  conveyor.add(sensor);
+
+  const clock = new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = clock.getDelta();
+    if (!reduceMotion){
+      rollers.forEach(r => r.rotation.x += dt * 2.4);
+      stripeTexture.offset.y -= dt * 0.35;
+      sensor.material.emissiveIntensity = 0.6 + Math.sin(clock.elapsedTime * 4) * 0.6;
+    }
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  function onResize(){
+    const w = container.clientWidth, h = container.clientHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  }
+  new ResizeObserver(onResize).observe(container);
+</script>
+
+</body>
+</html>
