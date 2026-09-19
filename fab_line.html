@@ -1,0 +1,1617 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>반도체 8대 공정 라인</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  :root{
+    --bg:#080b10;
+    --bg-2:#0d121a;
+    --panel:#10161f;
+    --panel-border:#232c38;
+    --text:#e7ecf2;
+    --text-dim:#8b96a5;
+    --line-cyan:#48d3e6;
+    --line-cyan-dim:#2a5560;
+    --line-copper:#d98a55;
+    --line-heat:#ff7a52;
+    --line-good:#59d68c;
+    --line-bad:#e8556a;
+    --front-tag:#3a4a5c;
+    --back-tag:#5c3a4a;
+    --focus:#48d3e6;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="light"]){
+      --bg:#080b10; --bg-2:#0d121a; --panel:#10161f; --panel-border:#232c38; --text:#e7ecf2; --text-dim:#8b96a5;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#080b10; --bg-2:#0d121a; --panel:#10161f; --panel-border:#232c38; --text:#e7ecf2; --text-dim:#8b96a5;
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:var(--bg); }
+  body{
+    font-family:'Noto Sans KR', -apple-system, 'Malgun Gothic', sans-serif;
+    color:var(--text);
+  }
+  #canvas-wrap{ position:fixed; inset:0; }
+  canvas{ display:block; width:100%; height:100%; touch-action:none; }
+
+  .hud{ position:fixed; inset:0; pointer-events:none; z-index:10; }
+  .hud > *{ pointer-events:auto; }
+
+  /* Header */
+  .header{
+    position:absolute; top:0; left:0; right:0;
+    padding:22px 28px 14px 28px;
+    display:flex; align-items:flex-start; justify-content:space-between;
+    background:linear-gradient(to bottom, rgba(8,11,16,0.85), rgba(8,11,16,0));
+  }
+  .title-block h1{
+    margin:0; font-size:19px; font-weight:700; letter-spacing:-0.01em; color:var(--text);
+  }
+  .title-block p{
+    margin:4px 0 0 0; font-size:12.5px; color:var(--text-dim); font-weight:400;
+  }
+  .phase-legend{
+    display:flex; gap:14px; margin-top:2px;
+  }
+  .phase-legend .item{
+    display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-dim);
+  }
+  .phase-legend .dot{ width:8px; height:8px; border-radius:2px; }
+  .dot.front{ background:var(--line-cyan); }
+  .dot.back{ background:var(--line-copper); }
+
+  .hint{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; color:var(--text-dim); text-align:right;
+    line-height:1.6; opacity:0.8;
+  }
+
+  /* Timeline */
+  .timeline{
+    position:absolute; left:50%; bottom:26px; transform:translateX(-50%);
+    display:flex; align-items:center; gap:0;
+    background:rgba(16,22,31,0.9); border:1px solid var(--panel-border);
+    border-radius:14px; padding:10px 10px;
+    backdrop-filter:blur(6px);
+    max-width:94vw; overflow-x:auto;
+  }
+  .step{
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    padding:6px 12px; cursor:pointer; position:relative; user-select:none;
+    border-radius:10px; transition:background 0.15s ease;
+    min-width:58px;
+  }
+  .step:hover{ background:rgba(255,255,255,0.05); }
+  .step .num{
+    width:26px; height:26px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:500;
+    border:1.5px solid var(--panel-border); color:var(--text-dim);
+    transition:all 0.2s ease;
+  }
+  .step .label{ font-size:10.5px; color:var(--text-dim); white-space:nowrap; transition:color 0.2s ease; }
+  .step.front .num{ border-color:var(--line-cyan-dim); }
+  .step.back .num{ border-color:#5a3a42; }
+  .step.active .num{
+    background:var(--focus); border-color:var(--focus); color:#08131a; font-weight:700;
+    box-shadow:0 0 0 4px rgba(72,211,230,0.15);
+  }
+  .step.back.active .num{ background:var(--line-copper); border-color:var(--line-copper); box-shadow:0 0 0 4px rgba(217,138,85,0.18); }
+  .step.active .label{ color:var(--text); font-weight:500; }
+  .step .sep{
+    position:absolute; right:-1px; top:50%; width:1px; height:18px;
+    background:var(--panel-border); transform:translateY(-50%);
+  }
+  .step:last-child .sep{ display:none; }
+
+  /* Info panel */
+  .panel{
+    position:absolute; top:88px; right:24px; width:340px; max-height:calc(100vh - 250px);
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:16px;
+    padding:20px 22px; overflow-y:auto;
+    transform:translateX(14px); opacity:0; transition:transform 0.35s cubic-bezier(.2,.8,.2,1), opacity 0.3s ease;
+  }
+  .panel.show{ transform:translateX(0); opacity:1; }
+  .panel::-webkit-scrollbar{ width:6px; }
+  .panel::-webkit-scrollbar-thumb{ background:var(--panel-border); border-radius:3px; }
+
+  .panel .eyebrow{
+    font-family:'JetBrains Mono', monospace; font-size:10.5px; color:var(--line-cyan);
+    display:flex; align-items:center; gap:8px; margin-bottom:6px;
+  }
+  .panel.back .eyebrow{ color:var(--line-copper); }
+  .panel .eyebrow .badge{
+    background:rgba(72,211,230,0.12); padding:2px 7px; border-radius:5px; color:var(--line-cyan);
+  }
+  .panel.back .eyebrow .badge{ background:rgba(217,138,85,0.14); color:var(--line-copper); }
+  .panel h2{ margin:0 0 10px 0; font-size:18px; font-weight:700; line-height:1.3; }
+  .panel .role{
+    font-size:12.5px; color:var(--text-dim); line-height:1.65; margin-bottom:14px;
+    padding-bottom:14px; border-bottom:1px solid var(--panel-border);
+  }
+  .panel .detail{
+    font-size:12.5px; line-height:1.7; color:var(--text); margin:0 0 10px 0;
+  }
+  .panel .detail:last-child{ margin-bottom:0; }
+  .panel .detail b{ color:var(--line-cyan); font-weight:500; }
+  .panel.back .detail b{ color:var(--line-copper); font-weight:500; }
+  .panel .detail .sub{ color:var(--text-dim); }
+
+  /* Spec chips */
+  .specs{
+    display:grid; grid-template-columns:1fr 1fr; gap:8px;
+    margin:14px 0; padding:12px 0; border-top:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border);
+  }
+  .spec-chip{ display:flex; flex-direction:column; gap:2px; }
+  .spec-chip .k{ font-size:9.5px; color:var(--text-dim); font-family:'JetBrains Mono', monospace; letter-spacing:0.01em; }
+  .spec-chip .v{ font-size:11.5px; color:var(--text); font-weight:500; font-family:'JetBrains Mono', monospace; }
+
+  /* Electrical sequence timing diagram */
+  .seq-section{ margin-top:16px; }
+  .seq-title{
+    display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-dim);
+    margin-bottom:9px; font-family:'JetBrains Mono', monospace;
+  }
+  .seq-title .blip{
+    width:6px; height:6px; border-radius:50%; background:var(--line-cyan);
+    animation:blip 1.4s ease-in-out infinite;
+  }
+  .panel.back .seq-title .blip{ background:var(--line-copper); }
+  @keyframes blip{ 0%,100%{ opacity:0.3; } 50%{ opacity:1; } }
+
+  .seq-phasebar{
+    position:relative; height:20px; border-radius:5px; overflow:hidden;
+    display:flex; margin-bottom:6px; border:1px solid var(--panel-border);
+  }
+  .seq-phase{
+    height:100%; display:flex; align-items:center; justify-content:center;
+    font-size:8.5px; color:var(--text-dim); font-family:'JetBrains Mono', monospace;
+    border-right:1px solid var(--bg); white-space:nowrap; overflow:hidden;
+  }
+  .seq-phase:last-child{ border-right:none; }
+
+  .seq-channels{ position:relative; }
+  .seq-row{ display:flex; align-items:center; gap:8px; height:20px; margin-bottom:2px; }
+  .seq-label{ width:76px; flex:0 0 76px; font-size:9.5px; color:var(--text-dim); font-family:'JetBrains Mono', monospace; text-align:right; }
+  .seq-track{ position:relative; flex:1; height:10px; background:rgba(255,255,255,0.03); border-radius:3px; }
+  .seq-bar{
+    position:absolute; top:0; height:100%; border-radius:2px;
+    background:var(--line-cyan);
+  }
+  .seq-bar.half{ opacity:0.45; }
+  .panel.back .seq-bar{ background:var(--line-copper); }
+
+  .seq-playhead{
+    position:absolute; top:0; bottom:0; width:1.5px; background:#fff;
+    box-shadow:0 0 6px rgba(255,255,255,0.8); left:84px; pointer-events:none;
+  }
+
+  /* Nav arrows */
+  .navbtn{
+    position:absolute; top:50%; transform:translateY(-50%);
+    width:44px; height:44px; border-radius:50%;
+    background:rgba(16,22,31,0.85); border:1px solid var(--panel-border);
+    color:var(--text); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-size:18px; transition:background 0.15s ease, border-color 0.15s ease;
+  }
+  .navbtn:hover{ background:rgba(255,255,255,0.08); border-color:var(--line-cyan-dim); }
+  .navbtn.prev{ left:24px; }
+  .navbtn.next{ right:24px; }
+  .navbtn:disabled{ opacity:0.25; pointer-events:none; }
+
+  .loading{
+    position:absolute; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:10px; z-index:50; transition:opacity 0.5s ease;
+  }
+  .loading .ring{
+    width:34px; height:34px; border-radius:50%;
+    border:2.5px solid var(--panel-border); border-top-color:var(--line-cyan);
+    animation:spin 0.9s linear infinite;
+  }
+  .loading span{ font-size:12px; color:var(--text-dim); font-family:'JetBrains Mono', monospace; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  @media (max-width: 720px){
+    .panel{ left:14px; right:14px; width:auto; top:auto; bottom:110px; max-height:36vh; }
+    .header{ padding:16px 16px 10px 16px; }
+    .title-block h1{ font-size:16px; }
+    .hint{ display:none; }
+    .navbtn{ width:38px; height:38px; }
+    .navbtn.prev{ left:10px; } .navbtn.next{ right:10px; }
+    .timeline{ bottom:14px; padding:8px; gap:0; }
+    .step{ min-width:44px; padding:5px 7px; }
+    .step .label{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading">
+  <div class="ring"></div>
+  <span id="loading-text">CLEANROOM 초기화 중...</span>
+</div>
+
+<div id="canvas-wrap"></div>
+
+<div class="hud">
+  <div class="header">
+    <div class="title-block">
+      <h1>반도체 제조 8대 공정</h1>
+      <p>웨이퍼 한 장이 완제품이 되기까지의 라인</p>
+      <div class="phase-legend">
+        <div class="item"><span class="dot front"></span>전공정 (Front-End) · 1–6</div>
+        <div class="item"><span class="dot back"></span>후공정 (Back-End) · 7–8</div>
+      </div>
+    </div>
+    <div class="hint">
+      드래그: 시점 회전 &nbsp;·&nbsp; 스크롤: 확대/축소<br>
+      클릭 / ← →: 공정 이동
+    </div>
+  </div>
+
+  <div class="navbtn prev" id="btn-prev" aria-label="이전 공정">‹</div>
+  <div class="navbtn next" id="btn-next" aria-label="다음 공정">›</div>
+
+  <div class="panel" id="panel"></div>
+
+  <div class="timeline" id="timeline"></div>
+</div>
+
+<script>
+(function(){
+
+// ---------------------------------------------------------------
+// STATION DATA
+// ---------------------------------------------------------------
+var STATIONS = [
+  {
+    id:1, phase:'front', key:'ingot',
+    name:'웨이퍼 제조', enName:'Wafer Fabrication',
+    labelY:10.4, lookY:3.6, camDist:17,
+    role:'반도체 집적회로를 형성하기 위한 원판 기판 제작',
+    details:[
+      '모래에서 추출한 고순도 규소(Si)를 고온으로 녹여 <b>잉곳(Ingot)</b>을 성장시킵니다 (초크랄스키법 등).',
+      '잉곳의 양 끝을 절단하고 다이아몬드 와이어로 얇은 원판 형태로 <b>슬라이싱</b>합니다.',
+      '표면을 거울처럼 매끄럽게 만드는 <b>연마(Polishing)</b>를 거쳐 베어 웨이퍼를 완성합니다.'
+    ],
+    specs:[
+      {k:'대표 장비', v:'CZ 잉곳 성장기(Crystal Puller)'},
+      {k:'웨이퍼 직경', v:'300 mm (12″)'},
+      {k:'융액 온도', v:'약 1,420 °C'},
+      {k:'표면 조도', v:'Ra < 0.2 nm'},
+      {k:'평탄도(TTV)', v:'수 µm 이내'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'heater', label:'히터 전원'},
+        {key:'puller', label:'인상 모터'},
+        {key:'saw', label:'와이어 쏘'},
+        {key:'polish', label:'연마 헤드'}
+      ],
+      phases:[
+        {t0:0, t1:2.5, name:'결정 성장', ch:{heater:1, puller:1}},
+        {t0:2.5, t1:3.4, name:'슬라이싱', ch:{saw:1}},
+        {t0:3.4, t1:6.6, name:'연마', ch:{polish:1}},
+        {t0:6.6, t1:8, name:'대기', ch:{}}
+      ]
+    }
+  },
+  {
+    id:2, phase:'front', key:'oxidation',
+    name:'산화 공정', enName:'Oxidation',
+    lookY:2.0, camDist:14,
+    role:'고온에서 산소·수증기를 반응시켜 웨이퍼 표면에 균일한 SiO₂ 산화막 형성',
+    details:[
+      '불순물·오염 침투를 차단하고 회로 간 <b>누설 전류 및 합선을 방지</b>하는 절연 역할을 합니다.',
+      '<b>건식 산화</b>: 산소 기체만 사용, 성장은 느리지만 막질이 치밀 — 얇은 게이트 절연막에 적용.',
+      '<b>습식 산화</b>: 산소 + 수증기 병용, 성장 속도가 빨라 두꺼운 필드 산화막 형성에 적합.'
+    ],
+    specs:[
+      {k:'대표 장비', v:'수평 확산로(Diffusion Furnace)'},
+      {k:'공정 온도', v:'900 – 1,200 °C'},
+      {k:'온도 균일도', v:'±0.5 °C 이내'},
+      {k:'건식 성장 속도', v:'약 14–25 nm/hr'},
+      {k:'승온 속도', v:'약 5 °C/min 이하'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'purge_n2', label:'N₂ 퍼지'},
+        {key:'heater', label:'히터 승온'},
+        {key:'o2', label:'O₂ 밸브'},
+        {key:'h2o', label:'H₂O 밸브'}
+      ],
+      phases:[
+        {t0:0, t1:1, name:'로딩', ch:{purge_n2:1}},
+        {t0:1, t1:2.4, name:'승온', ch:{purge_n2:1, heater:0.5}},
+        {t0:2.4, t1:6, name:'산화', ch:{heater:1, o2:1, h2o:1}},
+        {t0:6, t1:7, name:'강온', ch:{heater:0.5}},
+        {t0:7, t1:8, name:'언로딩', ch:{}}
+      ]
+    }
+  },
+  {
+    id:3, phase:'front', key:'photo',
+    name:'포토 공정', enName:'Photolithography',
+    labelY:8.9, lookY:3.4, camDist:15,
+    role:'빛을 이용해 설계된 미세 회로 패턴을 웨이퍼 표면에 전사',
+    details:[
+      '세부 단계: 웨이퍼 세정 → <b>감광액(PR)</b> 도포 → <b>노광</b>(포토마스크 통과광 조사) → <b>현상</b>.',
+      'UV, DUV, EUV 등의 광원을 사용하며 <span class="sub">파장이 짧을수록 선폭(CD)을 더 미세하게 구현할 수 있습니다.</span>'
+    ],
+    specs:[
+      {k:'대표 장비', v:'EUV/DUV 스캐너'},
+      {k:'광원 파장', v:'EUV 13.5 nm'},
+      {k:'DUV 파장', v:'193 nm (ArF)'},
+      {k:'노광 선량', v:'약 15–20 mJ/cm²'},
+      {k:'최소 선폭', v:'수 nm 급'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'align', label:'웨이퍼 정렬'},
+        {key:'uv', label:'UV 광원'},
+        {key:'develop', label:'현상액 분사'}
+      ],
+      phases:[
+        {t0:0, t1:1.5, name:'정렬', ch:{align:1}},
+        {t0:1.5, t1:4, name:'노광', ch:{uv:1}},
+        {t0:4, t1:6.5, name:'현상', ch:{develop:1}},
+        {t0:6.5, t1:8, name:'대기', ch:{}}
+      ]
+    }
+  },
+  {
+    id:4, phase:'front', key:'etch',
+    name:'식각 공정', enName:'Etching',
+    lookY:1.8, camDist:12.5,
+    role:'감광액 패턴을 마스크 삼아 불필요한 산화막·박막을 제거',
+    details:[
+      '<b>습식 식각</b>: 화학 용액 사용, 등방성 식각으로 언더컷 발생 — 선택비가 높고 처리량이 큽니다.',
+      '<b>건식 식각</b>: 반응성 플라즈마 사용, 비등방성(수직) 식각으로 고집적 미세 패턴에 필수적입니다.',
+      '식각 후 잔여 감광액은 <b>애싱/스트립</b>으로 제거합니다.'
+    ],
+    specs:[
+      {k:'대표 장비', v:'플라즈마 식각기(RIE/ICP)'},
+      {k:'RF 소스 전력', v:'100 – 3,000 W'},
+      {k:'RF 주파수', v:'13.56 MHz'},
+      {k:'챔버 압력', v:'수 – 수백 mTorr'},
+      {k:'기판 온도', v:'약 25–250 °C'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'vacuum', label:'진공 배기'},
+        {key:'rf', label:'RF 플라즈마'},
+        {key:'gas', label:'반응 가스'}
+      ],
+      phases:[
+        {t0:0, t1:1.5, name:'배기', ch:{vacuum:1}},
+        {t0:1.5, t1:2, name:'점화', ch:{vacuum:1, rf:0.5, gas:1}},
+        {t0:2, t1:5.5, name:'식각', ch:{vacuum:1, rf:1, gas:1}},
+        {t0:5.5, t1:7, name:'애싱', ch:{vacuum:1, gas:0.5}},
+        {t0:7, t1:8, name:'퍼지', ch:{}}
+      ]
+    }
+  },
+  {
+    id:5, phase:'front', key:'deposition',
+    name:'박막 증착 · 이온 주입', enName:'Deposition & Ion Implantation',
+    lookY:1.4, camDist:13,
+    role:'박막을 형성하고 불순물을 주입해 전기적 특성을 부여',
+    details:[
+      '<b>박막 증착</b>: PVD(스퍼터링) 또는 CVD/ALD로 절연막·전도막을 증착 — 최근 원자층 단위의 <b>ALD</b> 비중이 확대되었습니다.',
+      '<b>이온 주입</b>: 붕소(B)·인(P)·비소(As) 등 도펀트를 가속 충돌시켜 P형/N형 영역을 형성합니다.',
+      '이후 <b>열처리(Annealing)</b>로 격자 결함을 복구하고 도펀트를 활성화합니다.'
+    ],
+    specs:[
+      {k:'대표 장비', v:'이온 임플랜터 · ALD 챔버'},
+      {k:'주입 에너지', v:'약 10 – 200 keV'},
+      {k:'도즈량', v:'10¹²–10¹⁵ ions/cm²'},
+      {k:'ALD 공정 온도', v:'약 150–350 °C'},
+      {k:'ALD 성장률', v:'약 1 Å/cycle'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'ion_L', label:'이온빔 B/P'},
+        {key:'ion_R', label:'이온빔 As'},
+        {key:'precursor', label:'ALD 전구체'},
+        {key:'anneal', label:'열처리'}
+      ],
+      phases:[
+        {t0:0, t1:2.3, name:'이온주입 L', ch:{ion_L:1}},
+        {t0:2.3, t1:4.6, name:'이온주입 R', ch:{ion_R:1}},
+        {t0:4.6, t1:6.3, name:'ALD 펄스', ch:{precursor:1}},
+        {t0:6.3, t1:8, name:'어닐링', ch:{anneal:1}}
+      ]
+    }
+  },
+  {
+    id:6, phase:'front', key:'metal',
+    name:'금속 배선 공정', enName:'Metallization',
+    lookY:1.2, camDist:13.5,
+    role:'개별 소자에 전원·신호가 오갈 저저항 금속 라인을 연결',
+    details:[
+      '알루미늄(Al)·텅스텐(W)·구리(Cu) 등 고전도성 금속을 증착·패터닝합니다.',
+      '금속 원자의 실리콘 확산을 막기 위해 티타늄(Ti)·질화티타늄(TiN) <b>배리어 메탈</b>을 함께 형성합니다.'
+    ],
+    specs:[
+      {k:'대표 장비', v:'PVD 스퍼터 클러스터 툴'},
+      {k:'배선 재료', v:'Al · W · Cu'},
+      {k:'배리어 메탈', v:'Ti / TiN'},
+      {k:'PVD 방식', v:'스퍼터링(Sputtering)'},
+      {k:'배선 두께', v:'수백 nm급'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'sputter', label:'스퍼터 전원'},
+        {key:'bias', label:'바이어스'},
+        {key:'inspect', label:'배선 검사'}
+      ],
+      phases:[
+        {t0:0, t1:3, name:'스퍼터 증착', ch:{sputter:1, bias:1}},
+        {t0:3, t1:6, name:'배선 패터닝', ch:{}},
+        {t0:6, t1:8, name:'검사', ch:{inspect:1}}
+      ]
+    }
+  },
+  {
+    id:7, phase:'back', key:'eds',
+    name:'EDS 공정', enName:'Electrical Die Sorting',
+    lookY:1.8, camDist:13,
+    role:'웨이퍼 상태에서 칩의 전기적 특성을 테스트해 양품/불량을 조기 판별',
+    details:[
+      '<b>프로브 카드</b>의 미세 핀을 칩 패드에 접촉시켜 전압·전류·동작 속도를 측정합니다.',
+      '<b>ET/WBI</b> DC 파라미터 검사 및 고온 가속 스트레스, <b>Hot/Cold Test</b>로 극한 온도 기능을 검증합니다.',
+      '불량 셀은 예비 라인으로 <b>리페어</b>하고, 회생 불가 다이는 <b>Inking</b>으로 마킹해 후속 투입을 차단합니다.'
+    ],
+    specs:[
+      {k:'대표 장비', v:'웨이퍼 프로버 + 테스터'},
+      {k:'테스트 항목', v:'DC 파라미터 · 기능'},
+      {k:'환경 조건', v:'Hot / Cold Test'},
+      {k:'프로브 팁', v:'W·Ni합금 마이크로 니들'},
+      {k:'판정 결과', v:'양품 / 리페어 / Inking'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'probe_down', label:'프로브 접촉'},
+        {key:'test_sig', label:'테스트 신호'},
+        {key:'judge', label:'양/불량 판정'},
+        {key:'index', label:'다이 인덱싱'}
+      ],
+      phases:[
+        {t0:0, t1:1.5, name:'접촉', ch:{probe_down:1}},
+        {t0:1.5, t1:4.5, name:'DC 테스트', ch:{probe_down:1, test_sig:1}},
+        {t0:4.5, t1:5.5, name:'판정', ch:{probe_down:1, judge:1}},
+        {t0:5.5, t1:8, name:'인덱스 이동', ch:{index:1}}
+      ]
+    }
+  },
+  {
+    id:8, phase:'back', key:'package',
+    name:'패키징 공정', enName:'Packaging',
+    lookY:1.2, camDist:12,
+    role:'칩을 개별 분리하고 충격·습기·열로부터 보호, 단자를 연결',
+    details:[
+      '<b>다이싱</b>: 다이아몬드 블레이드/레이저로 웨이퍼를 개별 칩(Die) 단위로 절단합니다.',
+      '<b>다이 어태치</b> 후 <b>와이어 본딩</b> 또는 <b>플립칩</b> 방식으로 전기적으로 연결합니다.',
+      '에폭시 수지(EMC)로 <b>몰딩</b>해 밀봉하고, <b>파이널 테스트</b> 후 마킹하여 출하합니다.'
+    ],
+    specs:[
+      {k:'대표 장비', v:'와이어본더 · 몰딩 프레스'},
+      {k:'본딩 방식', v:'열압착 / 초음파'},
+      {k:'본딩 온도', v:'약 100–250 °C'},
+      {k:'초음파 주파수', v:'약 60–120 kHz'},
+      {k:'몰딩재', v:'에폭시 몰딩 컴파운드'}
+    ],
+    sequence:{
+      duration:8,
+      channels:[
+        {key:'heater', label:'본딩 히터'},
+        {key:'ultrasonic', label:'초음파 진동'},
+        {key:'mold_press', label:'몰딩 가압'},
+        {key:'final_test', label:'파이널 테스트'}
+      ],
+      phases:[
+        {t0:0, t1:1.5, name:'다이 어태치', ch:{}},
+        {t0:1.5, t1:3.5, name:'와이어 본딩', ch:{heater:1, ultrasonic:1}},
+        {t0:3.5, t1:6, name:'몰딩', ch:{mold_press:1}},
+        {t0:6, t1:8, name:'파이널 테스트', ch:{final_test:1}}
+      ]
+    }
+  }
+];
+
+var SPACING = 34;
+var stationX = STATIONS.map(function(s,i){ return i*SPACING; });
+
+// ---------------------------------------------------------------
+// SEQUENCE HELPERS — drive both the 3D animation and the timing
+// diagram from the same per-station "electrical sequence" data.
+// ---------------------------------------------------------------
+function phaseAt(seq, t){
+  var ct = ((t % seq.duration) + seq.duration) % seq.duration;
+  for(var i=0;i<seq.phases.length;i++){
+    var p = seq.phases[i];
+    if(ct >= p.t0 && ct < p.t1) return { phase:p, ct:ct, local:(ct-p.t0)/(p.t1-p.t0) };
+  }
+  var last = seq.phases[seq.phases.length-1];
+  return { phase:last, ct:ct, local:1 };
+}
+function chVal(seq, key, t){
+  var pr = phaseAt(seq, t);
+  var v = pr.phase.ch[key];
+  return v === undefined ? 0 : v;
+}
+
+// ---------------------------------------------------------------
+// THREE SETUP
+// ---------------------------------------------------------------
+var wrap = document.getElementById('canvas-wrap');
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x080b10);
+scene.fog = new THREE.FogExp2(0x080b10, 0.011);
+
+var camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 500);
+var renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+wrap.appendChild(renderer.domElement);
+
+// Lighting — cleanroom rig
+scene.add(new THREE.AmbientLight(0x2a3644, 1.1));
+var hemi = new THREE.HemisphereLight(0x3a4a5c, 0x0a0a12, 0.6);
+scene.add(hemi);
+
+function addRigLight(x, color, intensity){
+  var l = new THREE.PointLight(color, intensity, 60, 2);
+  l.position.set(x, 14, 6);
+  scene.add(l);
+}
+stationX.forEach(function(x, i){
+  addRigLight(x, STATIONS[i].phase==='front' ? 0x6fd8e8 : 0xe0a878, 0.9);
+});
+
+var keyLight = new THREE.DirectionalLight(0xffffff, 0.5);
+keyLight.position.set(20, 40, 20);
+scene.add(keyLight);
+
+// Floor — cleanroom grid
+var floorLen = stationX[stationX.length-1] + SPACING*2;
+var floorGeo = new THREE.PlaneGeometry(floorLen, 40, 1, 1);
+var floorMat = new THREE.MeshStandardMaterial({ color:0x0b0f16, roughness:0.85, metalness:0.15 });
+var floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.position.set(stationX[stationX.length-1]/2, 0, 0);
+scene.add(floor);
+
+var grid = new THREE.GridHelper(floorLen, Math.round(floorLen/2), 0x22303c, 0x161e26);
+grid.position.set(stationX[stationX.length-1]/2, 0.02, 0);
+scene.add(grid);
+
+// Conveyor spine line
+var spineMat = new THREE.MeshBasicMaterial({ color:0x1c2530 });
+var spineGeo = new THREE.BoxGeometry(floorLen, 0.15, 3.2);
+var spine = new THREE.Mesh(spineGeo, spineMat);
+spine.position.set(stationX[stationX.length-1]/2, 0.08, 0);
+scene.add(spine);
+var spineEdge = new THREE.Mesh(new THREE.BoxGeometry(floorLen, 0.16, 0.06),
+  new THREE.MeshBasicMaterial({ color:0x2a6d78 }));
+spineEdge.position.set(stationX[stationX.length-1]/2, 0.09, 1.63);
+scene.add(spineEdge);
+var spineEdge2 = spineEdge.clone();
+spineEdge2.position.z = -1.63;
+scene.add(spineEdge2);
+
+// ---------------------------------------------------------------
+// MATERIAL PALETTE
+// ---------------------------------------------------------------
+var COL = {
+  silicon:0x8891a0, siliconDark:0x555d68,
+  cyan:0x48d3e6, cyanDim:0x1a4550,
+  copper:0xd98a55, copperDim:0x5c3c26,
+  heat:0xff7a52,
+  good:0x59d68c, bad:0xe8556a,
+  glass:0x203040
+};
+
+function waferMesh(radius, thickness, color){
+  var g = new THREE.CylinderGeometry(radius, radius, thickness, 48);
+  var m = new THREE.MeshStandardMaterial({ color:color||COL.silicon, metalness:0.55, roughness:0.35 });
+  return new THREE.Mesh(g, m);
+}
+
+function makeParticles(count, spread, color, size){
+  var geo = new THREE.BufferGeometry();
+  var pos = new Float32Array(count*3);
+  for(var i=0;i<count;i++){
+    pos[i*3]   = (Math.random()-0.5)*spread.x;
+    pos[i*3+1] = Math.random()*spread.y;
+    pos[i*3+2] = (Math.random()-0.5)*spread.z;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var mat = new THREE.PointsMaterial({ color:color, size:size||0.12, transparent:true, opacity:0.85, depthWrite:false });
+  var pts = new THREE.Points(geo, mat);
+  pts.userData.base = pos.slice();
+  return pts;
+}
+
+// ---------------------------------------------------------------
+// STATION BUILDERS  (each returns a THREE.Group with .animate(t) )
+// ---------------------------------------------------------------
+var builders = {};
+
+builders.ingot = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x394655, metalness:0.55, roughness:0.35 });
+  var caseMatDark = new THREE.MeshStandardMaterial({ color:0x232b34, metalness:0.5, roughness:0.4 });
+
+  // --- CZ crystal puller: growth chamber (below) + tall pulling tower (above) ---
+  var puller = new THREE.Group();
+  puller.position.set(-4, 0, -2);
+  g.add(puller);
+
+  var growthChamber = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 2.1, 2.4, 24), caseMat);
+  growthChamber.position.y = 1.3;
+  puller.add(growthChamber);
+  // viewport window on the growth chamber
+  var viewport = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.92, 1.92, 1.1, 24, 1, true, -0.5, 1.0),
+    new THREE.MeshPhysicalMaterial({ color:COL.glass, transparent:true, opacity:0.35, roughness:0.15, side:THREE.DoubleSide })
+  );
+  viewport.position.y = 1.3;
+  puller.add(viewport);
+
+  var tower = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 5.6, 16), caseMatDark);
+  tower.position.y = 2.4 + 2.8;
+  puller.add(tower);
+
+  var winchBox = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.9, 1.3), caseMat);
+  winchBox.position.y = 2.4 + 5.6 + 0.45;
+  puller.add(winchBox);
+
+  // legs
+  [[-1.4,-1.4],[1.4,-1.4],[-1.4,1.4],[1.4,1.4]].forEach(function(p){
+    var leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.5,8), caseMatDark);
+    leg.position.set(p[0], 0.25, p[1]);
+    puller.add(leg);
+  });
+
+  // Ingot (grown crystal) hanging inside the growth chamber, pulled up into the tower
+  var ingot = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.55, 3.2, 32),
+    new THREE.MeshStandardMaterial({ color:COL.siliconDark, metalness:0.4, roughness:0.5, emissive:0xff7a52, emissiveIntensity:0 })
+  );
+  ingot.position.set(-4, 2.0, -2);
+  g.add(ingot);
+
+  // --- Slicing + polishing station (to the right) ---
+  var slicer = new THREE.Group();
+  slicer.position.set(0, 0, 3.4);
+  g.add(slicer);
+  var polisherHousing = new THREE.Mesh(new THREE.TorusGeometry(2.15, 0.14, 10, 40), caseMatDark);
+  polisherHousing.rotation.x = Math.PI/2;
+  polisherHousing.position.set(-4, 0.1, 0);
+  slicer.add(polisherHousing);
+
+  var sawArm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.9, 0.06), caseMat);
+  sawArm.position.set(3, 0.6, -1.4);
+  g.add(sawArm);
+  var sawBlade = new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55,0.02,32), new THREE.MeshStandardMaterial({ color:0xb9c4cf, metalness:0.9, roughness:0.15 }));
+  sawBlade.rotation.z = Math.PI/2;
+  sawBlade.position.set(3, 1.0, -1.4);
+  g.add(sawBlade);
+
+  // Wafer stack (sliced discs) growing to the right
+  var stack = new THREE.Group();
+  var n = 9;
+  for(var i=0;i<n;i++){
+    var w = waferMesh(1.6, 0.09, COL.silicon);
+    w.position.set(1.5 + i*0.02, 0.09 + i*0.13, 2);
+    stack.add(w);
+  }
+  stack.position.x = 3;
+  g.add(stack);
+  g.userData.stack = stack;
+
+  // polishing pad disc under a spotlight, slowly spinning
+  var pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.0, 2.0, 0.12, 40),
+    new THREE.MeshStandardMaterial({ color:0x2b3944, metalness:0.3, roughness:0.6 })
+  );
+  pad.position.set(-4, 0.06, 3.4);
+  g.add(pad);
+  g.userData.pad = pad;
+
+  g.userData.animate = function(t){
+    var heater = chVal(seq,'heater',t), pullerCh = chVal(seq,'puller',t);
+    var saw = chVal(seq,'saw',t), polish = chVal(seq,'polish',t);
+    ingot.material.emissiveIntensity = heater*0.55;
+    ingot.position.y = 2.0 + pullerCh*0.4*Math.sin(t*1.5)*0.5 + pullerCh*0.3;
+    growthChamber.material.emissive = new THREE.Color(0xff7a52);
+    growthChamber.material.emissiveIntensity = heater*0.25;
+    sawBlade.visible = saw > 0;
+    sawBlade.rotation.x += saw*1.4;
+    pad.rotation.y += 0.005 + polish*0.18;
+    stack.children.forEach(function(w, i){
+      w.position.y = 0.09 + i*0.13 + (saw ? Math.sin(t*45+i)*0.015 : 0);
+    });
+  };
+  return g;
+};
+
+builders.oxidation = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x3a4048, metalness:0.5, roughness:0.4 });
+
+  // furnace tube
+  var tube = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.9, 1.9, 8, 28, 1, true),
+    new THREE.MeshStandardMaterial({ color:0x2a2320, metalness:0.5, roughness:0.4, side:THREE.DoubleSide })
+  );
+  tube.rotation.z = Math.PI/2;
+  tube.position.set(0, 2.2, 0);
+  g.add(tube);
+
+  // furnace cabinet: end cabinets that the tube passes through, plus base frame
+  [-4.6, 4.6].forEach(function(x){
+    var endCab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.6, 3.6), caseMat);
+    endCab.position.set(x, 2.2, 0);
+    g.add(endCab);
+  });
+  var baseFrame = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.5, 2.6), caseMat);
+  baseFrame.position.set(0, 0.25, 0);
+  g.add(baseFrame);
+  // control panel with status LEDs on the front-left cabinet
+  var panelFace = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.6), new THREE.MeshStandardMaterial({ color:0x1a1e24 }));
+  panelFace.position.set(-4.05, 2.2, 1.81);
+  g.add(panelFace);
+  var leds = [];
+  for(var li=0; li<4; li++){
+    var led = new THREE.Mesh(new THREE.CircleGeometry(0.06, 12), new THREE.MeshStandardMaterial({ color:0x223028, emissive:0x59d68c, emissiveIntensity:0.2 }));
+    led.position.set(-4.0, 2.75 - li*0.32, 1.83);
+    g.add(led);
+    leds.push(led);
+  }
+  // support brackets along the tube
+  [-2.6,-0.8,0.8,2.6].forEach(function(x){
+    var bracket = new THREE.Mesh(new THREE.TorusGeometry(1.95, 0.06, 8, 24), caseMat);
+    bracket.rotation.y = Math.PI/2;
+    bracket.position.set(x, 2.2, 0);
+    g.add(bracket);
+  });
+
+  var glow = new THREE.PointLight(COL.heat, 1.6, 10, 2);
+  glow.position.set(0, 2.2, 0);
+  g.add(glow);
+
+  // wafers inside boat
+  var wafers = new THREE.Group();
+  for(var i=0;i<6;i++){
+    var w = waferMesh(1.5, 0.07, 0xffb28a);
+    w.material.emissive = new THREE.Color(COL.heat);
+    w.material.emissiveIntensity = 0.35;
+    w.rotation.z = Math.PI/2;
+    w.position.set(-2.5 + i*1.0, 2.2, 0);
+    wafers.add(w);
+  }
+  g.add(wafers);
+
+  var heatParticles = makeParticles(120, {x:9, y:5, z:3}, COL.heat, 0.09);
+  heatParticles.position.set(0, 2.2, 0);
+  g.add(heatParticles);
+
+  g.userData.animate = function(t){
+    var heater = chVal(seq,'heater',t), o2 = chVal(seq,'o2',t), h2o = chVal(seq,'h2o',t);
+    glow.intensity = 0.2 + heater*1.8;
+    wafers.children.forEach(function(w){ w.material.emissiveIntensity = 0.05 + heater*0.5; });
+    heatParticles.material.opacity = 0.15 + ((o2+h2o)/2)*0.75;
+    var pos = heatParticles.geometry.attributes.position;
+    var speed = 0.01 + heater*0.05;
+    for(var i=0;i<pos.count;i++){
+      var y = pos.getY(i) + speed;
+      if(y > 5) y = 0;
+      pos.setY(i, y);
+    }
+    pos.needsUpdate = true;
+    leds.forEach(function(led, i){
+      var on = i===0 ? heater : (i===1 ? o2 : (i===2 ? h2o : 1));
+      led.material.emissiveIntensity = 0.15 + on*0.7;
+    });
+  };
+  return g;
+};
+
+builders.photo = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x3d4652, metalness:0.55, roughness:0.3 });
+
+  // wafer stage (bottom platform)
+  var stage = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.3, 0.3, 24), caseMat);
+  stage.position.set(0, 0.25, 0);
+  g.add(stage);
+
+  var wafer = waferMesh(1.7, 0.1, COL.silicon);
+  wafer.position.set(0, 0.45, 0);
+  g.add(wafer);
+
+  // vacuum / projection-optics column
+  var column = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.0, 2.1, 6.6, 28, 1, true),
+    new THREE.MeshStandardMaterial({ color:0x2c3440, metalness:0.6, roughness:0.35, side:THREE.DoubleSide, transparent:true, opacity:0.55 })
+  );
+  column.position.set(0, 3.9, 0);
+  g.add(column);
+  var columnCap = new THREE.Mesh(new THREE.CylinderGeometry(2.05, 2.05, 0.3, 28), caseMat);
+  columnCap.position.set(0, 7.2, 0);
+  g.add(columnCap);
+
+  // reticle (mask) stage — small platform near the top of the column
+  var reticleStage = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.18, 1.6), caseMat);
+  reticleStage.position.set(0, 6.4, 0);
+  g.add(reticleStage);
+
+  // mask grid plane (the pattern being projected)
+  var maskGeo = new THREE.PlaneGeometry(1.4, 1.4, 8, 8);
+  var maskMat = new THREE.MeshBasicMaterial({ color:0x101820, wireframe:true, transparent:true, opacity:0.9 });
+  var mask = new THREE.Mesh(maskGeo, maskMat);
+  mask.rotation.x = -Math.PI/2;
+  mask.position.set(0, 6.15, 0);
+  g.add(mask);
+
+  // side EUV/DUV source module, connected to the column by a duct
+  var sourceModule = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.8), caseMat);
+  sourceModule.position.set(-3.6, 6.4, 0);
+  g.add(sourceModule);
+  var duct = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 1.7, 16), caseMat);
+  duct.rotation.z = Math.PI/2;
+  duct.position.set(-2.2, 6.4, 0);
+  g.add(duct);
+  var sourceGlow = new THREE.PointLight(COL.cyan, 0.6, 5, 2);
+  sourceGlow.position.set(-3.6, 6.4, 0);
+  g.add(sourceGlow);
+
+  // support legs
+  [[-1.6,-1.6],[1.6,-1.6],[-1.6,1.6],[1.6,1.6]].forEach(function(p){
+    var leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.5,8), caseMat);
+    leg.position.set(p[0], 0.25, p[1]);
+    g.add(leg);
+  });
+
+  // UV beam cone travelling down through the column onto the wafer
+  var beamGeo = new THREE.ConeGeometry(1.1, 5.6, 32, 1, true);
+  var beamMat = new THREE.MeshBasicMaterial({ color:COL.cyan, transparent:true, opacity:0.16, side:THREE.DoubleSide });
+  var beam = new THREE.Mesh(beamGeo, beamMat);
+  beam.position.set(0, 3.6, 0);
+  g.add(beam);
+
+  var beamLight = new THREE.PointLight(COL.cyan, 1.4, 8, 2);
+  beamLight.position.set(0, 1.0, 0);
+  g.add(beamLight);
+
+  g.userData.animate = function(t){
+    var align = chVal(seq,'align',t), uv = chVal(seq,'uv',t), develop = chVal(seq,'develop',t);
+    var flicker = uv ? (0.85+Math.sin(t*30)*0.15) : 0;
+    beamMat.opacity = 0.04 + uv*0.22*flicker;
+    beamLight.intensity = uv*2.2*flicker;
+    sourceGlow.intensity = 0.2 + uv*1.6*flicker;
+    stage.rotation.y = align ? Math.sin(t*3)*0.04 : 0;
+    wafer.material.emissive = new THREE.Color(develop ? 0x2a4a55 : 0x000000);
+    wafer.material.emissiveIntensity = develop*0.4;
+  };
+  return g;
+};
+
+builders.etch = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x3d4652, metalness:0.55, roughness:0.32 });
+
+  // equipment mainframe base (cabinet the chamber sits on)
+  var mainframe = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.0, 3.6), caseMat);
+  mainframe.position.set(0, 0.5, 0);
+  g.add(mainframe);
+
+  var wafer = waferMesh(1.7, 0.1, COL.silicon);
+  wafer.position.set(0, 1.05, 0);
+  g.add(wafer);
+  // grooves — thin rings etched pattern
+  for(var i=0;i<5;i++){
+    var ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.35+i*0.28, 0.02, 8, 40),
+      new THREE.MeshStandardMaterial({ color:0x2c3742 })
+    );
+    ring.rotation.x = Math.PI/2;
+    ring.position.y = 1.11;
+    g.add(ring);
+  }
+
+  // cylindrical vacuum chamber can (walls) + dome lid + gas showerhead
+  var chamberWall = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.1, 2.1, 2.0, 28, 1, true),
+    new THREE.MeshPhysicalMaterial({ color:COL.glass, transparent:true, opacity:0.2, roughness:0.15, side:THREE.DoubleSide })
+  );
+  chamberWall.position.set(0, 2.0, 0);
+  g.add(chamberWall);
+  var dome = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.1, 2.1, 0.5, 28),
+    new THREE.MeshPhysicalMaterial({ color:COL.glass, transparent:true, opacity:0.22, roughness:0.1, metalness:0.1 })
+  );
+  dome.position.set(0, 3.25, 0);
+  g.add(dome);
+  var showerhead = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.08, 24), caseMat);
+  showerhead.position.set(0, 2.85, 0);
+  g.add(showerhead);
+
+  // RF matching box on the side, connected with a strap
+  var rfBox = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.7), caseMat);
+  rfBox.position.set(2.8, 2.9, 0);
+  g.add(rfBox);
+  var rfStrap = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.9,10), caseMat);
+  rfStrap.rotation.z = Math.PI/2;
+  rfStrap.position.set(2.3, 2.9, 0);
+  g.add(rfStrap);
+  var rfLight = new THREE.PointLight(0x9d5fe8, 0.4, 4, 2);
+  rfLight.position.set(2.8, 2.9, 0);
+  g.add(rfLight);
+
+  var plasma = makeParticles(200, {x:3.6, y:2.2, z:3.6}, 0x9d5fe8, 0.07);
+  plasma.position.set(0, 2.4, 0);
+  g.add(plasma);
+  var plasmaLight = new THREE.PointLight(0x9d5fe8, 1.1, 7, 2);
+  plasmaLight.position.set(0, 2.3, 0);
+  g.add(plasmaLight);
+
+  g.userData.animate = function(t){
+    var vacuum = chVal(seq,'vacuum',t), rf = chVal(seq,'rf',t), gas = chVal(seq,'gas',t);
+    plasma.visible = rf > 0;
+    plasma.rotation.y += 0.01 + rf*0.5;
+    plasma.material.opacity = 0.5 + rf*0.4;
+    plasmaLight.intensity = rf*(1.0 + Math.sin(t*8)*0.3);
+    rfLight.intensity = rf*(0.5 + Math.sin(t*8)*0.2);
+    chamberWall.material.opacity = 0.12 + vacuum*0.14 + gas*0.06;
+  };
+  return g;
+};
+
+builders.deposition = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x3d4652, metalness:0.55, roughness:0.32 });
+
+  var wafer = waferMesh(1.7, 0.1, COL.silicon);
+  wafer.position.set(0, 0.1, 0);
+  g.add(wafer);
+
+  // end-station enclosure around the wafer (implant target chamber)
+  var endStation = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 1.6, 2.6),
+    new THREE.MeshPhysicalMaterial({ color:COL.glass, transparent:true, opacity:0.16, roughness:0.2, side:THREE.DoubleSide })
+  );
+  endStation.position.set(0, 0.7, 0);
+  g.add(endStation);
+  var endBase = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.3, 2.8), caseMat);
+  endBase.position.set(0, -0.15, 0);
+  g.add(endBase);
+
+  // layered thin films
+  for(var i=0;i<3;i++){
+    var film = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.55-i*0.12, 1.55-i*0.12, 0.05, 40),
+      new THREE.MeshStandardMaterial({ color: i%2? 0x2d5c66 : 0x40515f, transparent:true, opacity:0.85, metalness:0.4, roughness:0.4 })
+    );
+    film.position.y = 0.18 + i*0.11;
+    g.add(film);
+  }
+
+  // ion emitters (beamline nozzles) — kept for the particle streams
+  var emitterGeo = new THREE.ConeGeometry(0.25, 0.6, 12);
+  var emitterMat = new THREE.MeshStandardMaterial({ color:0x3a4a5c, metalness:0.6, roughness:0.3 });
+  var emitterL = new THREE.Mesh(emitterGeo, emitterMat);
+  emitterL.position.set(-2.6, 2.6, 0);
+  emitterL.rotation.z = Math.PI*0.65;
+  g.add(emitterL);
+  var emitterR = emitterL.clone();
+  emitterR.position.x = 2.6;
+  emitterR.rotation.z = -Math.PI*0.65;
+  g.add(emitterR);
+
+  // beamline housing on each side: ion source box + analyzing-magnet drum + beamline tube
+  [-1, 1].forEach(function(dir){
+    var sourceBox = new THREE.Mesh(new THREE.BoxGeometry(0.85,0.85,0.85), caseMat);
+    sourceBox.position.set(dir*4.5, 2.6, 0);
+    g.add(sourceBox);
+    var magnet = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.7,16), new THREE.MeshStandardMaterial({ color:0x4a5666, metalness:0.6, roughness:0.3 }));
+    magnet.rotation.z = Math.PI/2;
+    magnet.position.set(dir*3.5, 2.6, 0);
+    g.add(magnet);
+    var tube = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,1.3,14), caseMat);
+    tube.rotation.z = Math.PI/2;
+    tube.position.set(dir*2.9, 2.6, 0);
+    g.add(tube);
+  });
+
+  // separate ALD reactor module mounted behind the end station
+  var aldChamber = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.0, 20), caseMat);
+  aldChamber.position.set(0, 1.9, -2.6);
+  g.add(aldChamber);
+  var aldDuct = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,1.6,12), caseMat);
+  aldDuct.rotation.x = Math.PI/2.6;
+  aldDuct.position.set(0, 1.2, -1.6);
+  g.add(aldDuct);
+  var aldGlow = new THREE.PointLight(0x2d8c9c, 0.4, 4, 2);
+  aldGlow.position.set(0, 1.9, -2.6);
+  g.add(aldGlow);
+
+  var ionsL = makeParticles(60, {x:0.3,y:0.3,z:0.3}, COL.cyan, 0.09);
+  ionsL.position.copy(emitterL.position);
+  g.add(ionsL);
+  var ionsR = makeParticles(60, {x:0.3,y:0.3,z:0.3}, COL.copper, 0.09);
+  ionsR.position.copy(emitterR.position);
+  g.add(ionsR);
+
+  function stream(pts, from, to, t, offset, active){
+    pts.visible = active > 0;
+    var pos = pts.geometry.attributes.position;
+    for(var i=0;i<pos.count;i++){
+      var p = ((t*0.9 + i*0.017 + offset) % 1);
+      var x = from.x + (to.x-from.x)*p + (Math.random()-0.5)*0.05;
+      var y = from.y + (to.y-from.y)*p;
+      var z = (Math.random()-0.5)*0.3;
+      pos.setXYZ(i, x-pts.position.x, y-pts.position.y, z);
+    }
+    pos.needsUpdate = true;
+  }
+
+  g.userData.animate = function(t){
+    var ionL = chVal(seq,'ion_L',t), ionR = chVal(seq,'ion_R',t);
+    var precursor = chVal(seq,'precursor',t), anneal = chVal(seq,'anneal',t);
+    stream(ionsL, emitterL.position, new THREE.Vector3(0,0.3,0), t, 0, ionL);
+    stream(ionsR, emitterR.position, new THREE.Vector3(0,0.3,0), t, 0.5, ionR);
+    wafer.material.emissive = new THREE.Color(0xff7a52);
+    wafer.material.emissiveIntensity = anneal*0.5;
+    aldGlow.intensity = 0.15 + precursor*0.9*(0.7+Math.sin(t*20)*0.3);
+    g.children.forEach(function(child){
+      if(child.geometry && child.geometry.type === 'CylinderGeometry' && child.material.transparent){
+        child.material.opacity = 0.55 + precursor*0.35*(0.7+Math.sin(t*20)*0.3);
+      }
+    });
+  };
+  return g;
+};
+
+builders.metal = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x3d4652, metalness:0.55, roughness:0.32 });
+
+  // --- PVD cluster tool mainframe (behind the product close-up) ---
+  var cluster = new THREE.Group();
+  cluster.position.set(0, 0, -4.6);
+  g.add(cluster);
+
+  var hub = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 1.1, 6), caseMat);
+  hub.position.set(0, 0.85, 0);
+  cluster.add(hub);
+  var transferRobot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.6), new THREE.MeshStandardMaterial({ color:0x8891a0, metalness:0.7, roughness:0.2 }));
+  transferRobot.position.set(0, 1.25, 0);
+  cluster.add(transferRobot);
+
+  var moduleMat = new THREE.MeshStandardMaterial({ color:0x333c48, metalness:0.5, roughness:0.35 });
+  var procModules = [];
+  for(var m=0; m<6; m++){
+    var ang = (m/6)*Math.PI*2;
+    var mod = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.9, 1.0), moduleMat.clone());
+    mod.position.set(Math.sin(ang)*2.1, 0.85, Math.cos(ang)*2.1);
+    cluster.add(mod);
+    procModules.push(mod);
+  }
+  var loadLock = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.5), caseMat);
+  loadLock.position.set(0, 0.85, 3.0);
+  cluster.add(loadLock);
+
+  // --- product close-up: wafer with copper interconnect ---
+  var wafer = waferMesh(1.7, 0.1, COL.silicon);
+  wafer.position.set(0, 0.1, 0);
+  g.add(wafer);
+
+  var copperMat = new THREE.MeshStandardMaterial({ color:COL.copper, metalness:0.85, roughness:0.25, emissive:0x552f16, emissiveIntensity:0.25 });
+  var traceGroup = new THREE.Group();
+  var lines = 7;
+  for(var i=0;i<lines;i++){
+    var len = 1.2 + Math.random()*1.6;
+    var trace = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, 0.09), copperMat);
+    var angT = (i/lines)*Math.PI*2;
+    trace.position.set(Math.cos(angT)*0.7, 0.19, Math.sin(angT)*0.7);
+    trace.rotation.y = angT + Math.PI/2;
+    traceGroup.add(trace);
+  }
+  // via pillars
+  for(var j=0;j<10;j++){
+    var via = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.3,10), copperMat);
+    var a2 = Math.random()*Math.PI*2, r2 = Math.random()*1.3;
+    via.position.set(Math.cos(a2)*r2, 0.3, Math.sin(a2)*r2);
+    traceGroup.add(via);
+  }
+  g.add(traceGroup);
+
+  var glintLight = new THREE.PointLight(COL.copper, 0.9, 6, 2);
+  glintLight.position.set(0, 1.6, 0.6);
+  g.add(glintLight);
+
+  g.userData.animate = function(t){
+    var sputter = chVal(seq,'sputter',t), bias = chVal(seq,'bias',t), inspect = chVal(seq,'inspect',t);
+    glintLight.intensity = 0.25 + sputter*1.3 + bias*0.3;
+    traceGroup.rotation.y = Math.sin(t*0.6)*0.04*(sputter+0.2);
+    copperMat.emissiveIntensity = 0.2 + inspect*0.55*(0.7+Math.sin(t*6)*0.3) + sputter*0.15;
+    transferRobot.rotation.y += 0.004 + sputter*0.02;
+    procModules.forEach(function(mod, i){
+      mod.material.emissive = new THREE.Color(COL.copper);
+      mod.material.emissiveIntensity = (i===0) ? sputter*0.5 : 0.05;
+    });
+  };
+  return g;
+};
+
+builders.eds = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x394048, metalness:0.5, roughness:0.35 });
+
+  // prober housing / chuck body
+  var chuckBody = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.3, 0.5, 28), caseMat);
+  chuckBody.position.set(0, -0.15, 0);
+  g.add(chuckBody);
+  var proberFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(4.6, 0.12, 4.6),
+    new THREE.MeshStandardMaterial({ color:0x232a30, metalness:0.5, roughness:0.4 })
+  );
+  proberFrame.position.set(0, 0.16, 0);
+  g.add(proberFrame);
+
+  var dieMats = [];
+  var grid8 = new THREE.Group();
+  var rows=4, cols=4, badIdx=[3,11];
+  for(var r=0;r<rows;r++){
+    for(var c=0;c<cols;c++){
+      var idx = r*cols+c;
+      var isBad = badIdx.indexOf(idx) !== -1;
+      var mat = new THREE.MeshStandardMaterial({
+        color: isBad ? COL.bad : COL.good,
+        emissive: isBad ? COL.bad : COL.good,
+        emissiveIntensity:0.35, metalness:0.3, roughness:0.5
+      });
+      var die = new THREE.Mesh(new THREE.BoxGeometry(0.7,0.14,0.7), mat);
+      die.position.set((c-cols/2+0.5)*0.85, 0.07, (r-rows/2+0.5)*0.85);
+      grid8.add(die);
+      dieMats.push({mesh:die, bad:isBad});
+    }
+  }
+  g.add(grid8);
+
+  // probe card disc, suspended above the wafer
+  var probeCard = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.7, 1.7, 0.08, 32),
+    new THREE.MeshStandardMaterial({ color:0x2a2f36, metalness:0.4, roughness:0.5 })
+  );
+  probeCard.position.set(0, 2.45, 0);
+  g.add(probeCard);
+
+  // hinged test head above the probe card, tilted slightly (docked)
+  var testHead = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.8, 20), caseMat);
+  testHead.position.set(0, 3.2, 0);
+  g.add(testHead);
+  var hingeArm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 0.12), caseMat);
+  hingeArm.position.set(2.0, 2.9, 0);
+  g.add(hingeArm);
+
+  // tester rack cabinet beside the prober, with status LEDs
+  var testerCab = new THREE.Mesh(new THREE.BoxGeometry(1.3, 3.2, 1.6), caseMat);
+  testerCab.position.set(4.2, 1.6, 0);
+  g.add(testerCab);
+  var testerLeds = [];
+  for(var li=0; li<5; li++){
+    var led = new THREE.Mesh(new THREE.CircleGeometry(0.05, 12), new THREE.MeshStandardMaterial({ color:0x223028, emissive:COL.good, emissiveIntensity:0.2 }));
+    led.position.set(3.56, 2.6 - li*0.28, 0.6);
+    g.add(led);
+    testerLeds.push(led);
+  }
+  var cable = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,2.2,8), new THREE.MeshStandardMaterial({ color:0x1a1a1a }));
+  cable.rotation.z = Math.PI/2;
+  cable.position.set(2.9, 2.6, 0);
+  g.add(cable);
+
+  // probe needles descending above 3 sample dies
+  var probes = new THREE.Group();
+  var probeTargets = [0, 3, 10];
+  probeTargets.forEach(function(idx){
+    var probe = new THREE.Mesh(
+      new THREE.ConeGeometry(0.05, 0.9, 8),
+      new THREE.MeshStandardMaterial({ color:0xb9c4cf, metalness:0.8, roughness:0.2 })
+    );
+    var d = dieMats[idx].mesh;
+    probe.position.set(d.position.x, 2.4, d.position.z);
+    probe.userData.baseY = 2.4;
+    probe.userData.dieY = d.position.y + 0.3;
+    probes.add(probe);
+  });
+  g.add(probes);
+
+  var scanLight = new THREE.PointLight(0xffffff, 0.7, 6, 2);
+  scanLight.position.set(0, 2, 0);
+  g.add(scanLight);
+
+  g.userData.animate = function(t){
+    var probeDown = chVal(seq,'probe_down',t), testSig = chVal(seq,'test_sig',t);
+    var judge = chVal(seq,'judge',t), index = chVal(seq,'index',t);
+    probes.children.forEach(function(p){
+      var targetY = probeDown ? p.userData.dieY : p.userData.baseY;
+      p.position.y += (targetY - p.position.y) * 0.25;
+    });
+    scanLight.intensity = 0.4 + testSig*0.8 + judge*0.6;
+    grid8.rotation.y = index ? Math.sin(t*10)*0.03 : 0;
+    dieMats.forEach(function(d, i){
+      var flicker = testSig ? (0.3+Math.sin(t*10+i)*0.15) : 0.15;
+      d.mesh.material.emissiveIntensity = d.bad ? (0.35 + judge*0.45) : flicker;
+    });
+    testerLeds.forEach(function(led, i){
+      var on = i===0 ? testSig : (i===1 ? probeDown : (i===2 ? judge : (i===3 ? index : 1)));
+      led.material.emissiveIntensity = 0.15 + on*0.7;
+      led.material.color = new THREE.Color(i===2 && judge ? COL.bad : 0x223028);
+    });
+  };
+  return g;
+};
+
+builders.package = function(st){
+  var seq = st.sequence;
+  var g = new THREE.Group();
+  var caseMat = new THREE.MeshStandardMaterial({ color:0x3d4652, metalness:0.55, roughness:0.32 });
+
+  // diced individual dies with gaps, on lead frame base
+  var base = new THREE.Mesh(
+    new THREE.BoxGeometry(3.2, 0.12, 2.2),
+    new THREE.MeshStandardMaterial({ color:0x2a3038, metalness:0.5, roughness:0.5 })
+  );
+  base.position.set(-2.6, 0.06, 0);
+  g.add(base);
+
+  var die = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1, 0.16, 1.1),
+    new THREE.MeshStandardMaterial({ color:COL.silicon, metalness:0.4, roughness:0.4 })
+  );
+  die.position.set(-2.6, 0.2, 0);
+  g.add(die);
+
+  // wire-bonder gantry: two posts + crossbeam over the die, with a descending capillary bond head
+  var post1 = new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,2.2,10), caseMat);
+  post1.position.set(-3.8, 1.1, 0.9);
+  g.add(post1);
+  var post2 = post1.clone();
+  post2.position.set(-1.4, 1.1, 0.9);
+  g.add(post2);
+  var crossbeam = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.18, 0.18), caseMat);
+  crossbeam.position.set(-2.6, 2.15, 0.9);
+  g.add(crossbeam);
+  var bondHead = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.5, 10), new THREE.MeshStandardMaterial({ color:0xb9c4cf, metalness:0.85, roughness:0.15 }));
+  bondHead.position.set(-2.6, 1.4, 0.4);
+  g.add(bondHead);
+  var wireSpool = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.1,16), new THREE.MeshStandardMaterial({ color:0xd4b45a, metalness:0.6, roughness:0.3 }));
+  wireSpool.rotation.x = Math.PI/2;
+  wireSpool.position.set(-2.6, 2.0, 0.55);
+  g.add(wireSpool);
+
+  // wire bonds arcing from die to base pads
+  var wireMat = new THREE.LineBasicMaterial({ color:0xd4b45a });
+  var wires = new THREE.Group();
+  var pts = [[-1.4,0.6],[1.4,0.6],[-1.4,-0.6],[1.4,-0.6]];
+  pts.forEach(function(p){
+    var start = new THREE.Vector3(-2.6+p[0]*0.35, 0.3, p[1]*0.35);
+    var end = new THREE.Vector3(-2.6+p[0]*1.35, 0.12, p[1]*0.9);
+    var mid = new THREE.Vector3((start.x+end.x)/2, 0.9, (start.z+end.z)/2);
+    var curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    var geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(20));
+    wires.add(new THREE.Line(geo, wireMat));
+  });
+  g.add(wires);
+
+  // molding press: top/bottom platens + corner columns around the mold shell
+  var moldPressGroup = new THREE.Group();
+  moldPressGroup.position.set(-2.6, 0, 0);
+  g.add(moldPressGroup);
+  var pressBottom = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.18, 2.1), caseMat);
+  pressBottom.position.set(0, 0.15, 0);
+  moldPressGroup.add(pressBottom);
+  var pressTop = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.18, 2.1), caseMat);
+  pressTop.position.set(0, 1.5, 0);
+  moldPressGroup.add(pressTop);
+  [[-0.95,-0.95],[0.95,-0.95],[-0.95,0.95],[0.95,0.95]].forEach(function(p){
+    var col = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,1.35,8), caseMat);
+    col.position.set(p[0], 0.83, p[1]);
+    moldPressGroup.add(col);
+  });
+
+  // molding shell (translucent epoxy) that closes over time
+  var mold = new THREE.Mesh(
+    new THREE.BoxGeometry(1.7, 0.5, 1.7),
+    new THREE.MeshPhysicalMaterial({ color:0x8a6a3a, transparent:true, opacity:0.35, roughness:0.3, metalness:0.1 })
+  );
+  mold.position.set(-2.6, 0.5, 0);
+  g.add(mold);
+
+  // separated diced chips moving away, final packaged parts
+  var finished = new THREE.Group();
+  for(var i=0;i<4;i++){
+    var chip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6,0.28,0.6),
+      new THREE.MeshStandardMaterial({ color:0x1c1f24, metalness:0.5, roughness:0.4 })
+    );
+    chip.position.set(0.6 + i*0.95, 0.14, 0);
+    finished.add(chip);
+  }
+  g.add(finished);
+
+  g.userData.animate = function(t){
+    var heater = chVal(seq,'heater',t), ultrasonic = chVal(seq,'ultrasonic',t);
+    var moldPress = chVal(seq,'mold_press',t), finalTest = chVal(seq,'final_test',t);
+    wireMat.color.setHex(heater ? 0xffd27a : 0xd4b45a);
+    bondHead.position.y = 1.4 - ultrasonic*0.55;
+    bondHead.position.x = -2.6 + (ultrasonic ? Math.sin(t*20)*0.03 : 0);
+    wires.children.forEach(function(w, i){
+      w.position.x = ultrasonic ? Math.sin(t*40+i)*0.01 : 0;
+    });
+    mold.scale.y = 1 - moldPress*0.12;
+    mold.material.opacity = 0.28 + moldPress*0.2;
+    pressTop.position.y = 1.5 - moldPress*0.35;
+    finished.children.forEach(function(c, i){
+      c.position.y = 0.14 + (finalTest ? Math.abs(Math.sin(t*6+i)) * 0.05 : 0.01*Math.sin(t+i));
+      c.material.emissive = new THREE.Color(finalTest ? 0x59d68c : 0x000000);
+      c.material.emissiveIntensity = finalTest ? 0.4 : 0;
+    });
+  };
+  return g;
+};
+
+// ---------------------------------------------------------------
+// PLACE STATIONS + LABEL SPRITES
+// ---------------------------------------------------------------
+function makeLabelSprite(text, sub, phase){
+  var canvasEl = document.createElement('canvas');
+  var scale = 2;
+  canvasEl.width = 420*scale; canvasEl.height = 130*scale;
+  var ctx = canvasEl.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.font = '700 15px "Noto Sans KR", sans-serif';
+  var accent = phase==='front' ? '#48d3e6' : '#d98a55';
+  ctx.fillStyle = accent;
+  ctx.textAlign = 'center';
+  ctx.font = '700 13px "JetBrains Mono", monospace';
+  ctx.fillText(sub, 210, 26);
+  ctx.font = '700 24px "Noto Sans KR", sans-serif';
+  ctx.fillStyle = '#e7ecf2';
+  ctx.fillText(text, 210, 58);
+  var tex = new THREE.CanvasTexture(canvasEl);
+  tex.needsUpdate = true;
+  var mat = new THREE.SpriteMaterial({ map:tex, transparent:true, depthTest:false });
+  var sprite = new THREE.Sprite(mat);
+  sprite.scale.set(6.2, 1.9, 1);
+  return sprite;
+}
+
+var stationGroups = [];
+STATIONS.forEach(function(st, i){
+  var group = new THREE.Group();
+  group.position.set(stationX[i], 0, 0);
+  var model = builders[st.key](st);
+  group.add(model);
+
+  var label = makeLabelSprite(st.name, 'STEP ' + st.id + ' / ' + st.enName, st.phase);
+  label.position.set(0, st.labelY || 6.4, 0);
+  group.add(label);
+
+  // base ring platform
+  var platform = new THREE.Mesh(
+    new THREE.CylinderGeometry(3.4, 3.4, 0.08, 48),
+    new THREE.MeshStandardMaterial({ color: st.phase==='front' ? 0x122129 : 0x291a1e, metalness:0.3, roughness:0.7 })
+  );
+  platform.position.y = 0.02;
+  group.add(platform);
+
+  scene.add(group);
+  stationGroups.push({ group:group, model:model, station:st });
+});
+
+// ---------------------------------------------------------------
+// CAMERA CONTROL: manual orbit + fly-to
+// ---------------------------------------------------------------
+var current = 0;
+var target = new THREE.Vector3(stationX[0], 1.6, 0);
+var camDist = 11, camTheta = 0.55, camPhi = 1.15; // spherical around target
+var targetDist = camDist, targetTheta = camTheta, targetPhi = camPhi;
+var targetLook = target.clone();
+var flying = false;
+
+function sphericalToCartesian(dist, theta, phi, center){
+  var x = center.x + dist*Math.sin(phi)*Math.sin(theta);
+  var y = center.y + dist*Math.cos(phi);
+  var z = center.z + dist*Math.sin(phi)*Math.cos(theta);
+  return new THREE.Vector3(x,y,z);
+}
+
+function focusStation(idx, instant){
+  idx = Math.max(0, Math.min(STATIONS.length-1, idx));
+  current = idx;
+  var st = STATIONS[idx];
+  var lookY = st.lookY !== undefined ? st.lookY : 1.6;
+  var dist = st.camDist !== undefined ? st.camDist : 11;
+  targetLook = new THREE.Vector3(stationX[idx], lookY, 0);
+  targetTheta = 0.55;
+  targetDist = dist;
+  targetPhi = 1.15;
+  if(instant){
+    target.copy(targetLook);
+    camDist = targetDist; camTheta = targetTheta; camPhi = targetPhi;
+  }
+  updateUI();
+}
+
+// mouse / touch drag to orbit
+var dragging = false, lastX=0, lastY=0;
+renderer.domElement.addEventListener('pointerdown', function(e){
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+});
+window.addEventListener('pointerup', function(){ dragging = false; });
+window.addEventListener('pointermove', function(e){
+  if(!dragging) return;
+  var dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  targetTheta -= dx*0.006;
+  targetPhi = Math.max(0.5, Math.min(1.5, targetPhi - dy*0.005));
+});
+renderer.domElement.addEventListener('wheel', function(e){
+  e.preventDefault();
+  targetDist = Math.max(5, Math.min(20, targetDist + e.deltaY*0.01));
+}, { passive:false });
+
+window.addEventListener('keydown', function(e){
+  if(e.key === 'ArrowRight') focusStation(current+1);
+  if(e.key === 'ArrowLeft') focusStation(current-1);
+});
+
+// ---------------------------------------------------------------
+// UI: timeline + panel
+// ---------------------------------------------------------------
+var timelineEl = document.getElementById('timeline');
+STATIONS.forEach(function(st, i){
+  var el = document.createElement('div');
+  el.className = 'step ' + st.phase;
+  el.innerHTML = '<div class="num">'+st.id+'</div><div class="label">'+st.name+'</div><div class="sep"></div>';
+  el.addEventListener('click', function(){ focusStation(i); });
+  timelineEl.appendChild(el);
+});
+
+var panelEl = document.getElementById('panel');
+var btnPrev = document.getElementById('btn-prev');
+var btnNext = document.getElementById('btn-next');
+btnPrev.addEventListener('click', function(){ focusStation(current-1); });
+btnNext.addEventListener('click', function(){ focusStation(current+1); });
+
+function updateUI(){
+  var st = STATIONS[current];
+  // timeline
+  var steps = timelineEl.querySelectorAll('.step');
+  steps.forEach(function(el, i){ el.classList.toggle('active', i===current); });
+  var activeEl = steps[current];
+  if(activeEl && activeEl.scrollIntoView){
+    activeEl.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' });
+  }
+  // panel
+  panelEl.className = 'panel show ' + st.phase;
+  var badgeText = st.phase === 'front' ? '전공정' : '후공정';
+  var detailsHtml = st.details.map(function(d){ return '<p class="detail">'+d+'</p>'; }).join('');
+
+  var specsHtml = '<div class="specs">' + st.specs.map(function(s){
+    return '<div class="spec-chip"><span class="k">'+s.k+'</span><span class="v">'+s.v+'</span></div>';
+  }).join('') + '</div>';
+
+  var seq = st.sequence;
+  var phaseBarHtml = '<div class="seq-phasebar">' + seq.phases.map(function(p){
+    var w = ((p.t1-p.t0)/seq.duration*100).toFixed(2);
+    return '<div class="seq-phase" style="width:'+w+'%">'+p.name+'</div>';
+  }).join('') + '</div>';
+
+  var channelsHtml = '<div class="seq-channels" id="seq-channels">' + seq.channels.map(function(ch){
+    var bars = seq.phases.map(function(p){
+      var v = p.ch[ch.key];
+      if(!v) return '';
+      var left = (p.t0/seq.duration*100).toFixed(2);
+      var w = ((p.t1-p.t0)/seq.duration*100).toFixed(2);
+      var cls = v < 1 ? 'seq-bar half' : 'seq-bar';
+      return '<div class="'+cls+'" style="left:'+left+'%; width:'+w+'%"></div>';
+    }).join('');
+    return '<div class="seq-row"><span class="seq-label">'+ch.label+'</span><div class="seq-track">'+bars+'</div></div>';
+  }).join('') + '<div class="seq-playhead" id="seq-playhead"></div></div>';
+
+  panelEl.innerHTML =
+    '<div class="eyebrow"><span class="badge">STEP '+st.id+'</span><span>'+badgeText+' · '+st.enName+'</span></div>' +
+    '<h2>'+st.name+'</h2>' +
+    '<p class="role">'+st.role+'</p>' +
+    specsHtml +
+    detailsHtml +
+    '<div class="seq-section"><div class="seq-title"><span class="blip"></span>공정 제어 시퀀스 (실시간)</div>' +
+    phaseBarHtml + channelsHtml + '</div>';
+
+  btnPrev.disabled = current === 0;
+  btnNext.disabled = current === STATIONS.length-1;
+}
+
+// ---------------------------------------------------------------
+// RENDER LOOP
+// ---------------------------------------------------------------
+var clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  var t = clock.getElapsedTime();
+
+  // smooth camera interpolation
+  camDist  += (targetDist  - camDist)  * 0.06;
+  camTheta += (targetTheta - camTheta) * 0.07;
+  camPhi   += (targetPhi   - camPhi)   * 0.07;
+  target.lerp(targetLook, 0.06);
+
+  var camPos = sphericalToCartesian(camDist, camTheta, camPhi, target);
+  camera.position.copy(camPos);
+  camera.lookAt(target);
+
+  stationGroups.forEach(function(sg){
+    if(sg.model.userData.animate) sg.model.userData.animate(t);
+  });
+
+  var playhead = document.getElementById('seq-playhead');
+  if(playhead){
+    var seq = STATIONS[current].sequence;
+    var frac = (((t % seq.duration) + seq.duration) % seq.duration) / seq.duration;
+    playhead.style.left = 'calc(84px + (100% - 84px) * ' + frac.toFixed(4) + ')';
+  }
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', function(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// init
+focusStation(0, true);
+animate();
+
+document.getElementById('loading-text').textContent = '라인 준비 완료';
+setTimeout(function(){
+  var loadingEl = document.getElementById('loading');
+  loadingEl.style.opacity = '0';
+  setTimeout(function(){ loadingEl.style.display = 'none'; }, 500);
+}, 350);
+
+})();
+</script>
+</body>
+</html>
