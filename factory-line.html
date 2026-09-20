@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>ECU 자동 생산·검사 라인 — 3D 시뮬레이션</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root{
+    --bg:#0e1116;
+    --panel-bg: rgba(17,20,26,0.86);
+    --panel-bg-soft: rgba(17,20,26,0.6);
+    --panel-border:#2a3038;
+    --text:#e7ebf1;
+    --text-dim:#8b96a5;
+    --accent:#ffb300;
+    --blue:#5b9bff;
+    --green:#35c47f;
+    --purple:#b48af0;
+    --red:#ff5f6d;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0e1116; --panel-bg: rgba(17,20,26,0.86); --text:#e7ebf1;
+    }
+  }
+  :root[data-theme="dark"]{ --bg:#0e1116; --panel-bg: rgba(17,20,26,0.86); --text:#e7ebf1; }
+  html,body{ height:100%; margin:0; background:var(--bg); overflow:hidden; }
+  *{ box-sizing:border-box; }
+  body{ font-family: var(--sans); color:var(--text); }
+  #app{ position:fixed; inset:0; }
+  canvas{ display:block; touch-action:none; }
+
+  #loading{
+    position:fixed; inset:0; background:var(--bg); z-index:50;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; transition:opacity .5s ease;
+  }
+  #loading .spin{
+    width:42px; height:42px; border-radius:50%;
+    border:3px solid #2a3038; border-top-color:var(--accent);
+    animation:spin 0.9s linear infinite;
+  }
+  #loading .msg{ color:var(--text-dim); font-size:13px; letter-spacing:.02em; }
+  @keyframes spin{ to{ transform:rotate(360deg);} }
+
+  /* Top bar */
+  #topbar{
+    position:fixed; top:0; left:0; right:0; z-index:20;
+    padding: calc(12px + env(safe-area-inset-top,0px)) 18px 12px;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    background:linear-gradient(to bottom, rgba(10,12,16,0.85), rgba(10,12,16,0));
+    pointer-events:none;
+  }
+  #topbar .title-block{ pointer-events:auto; }
+  #topbar h1{ font-size:16px; font-weight:600; margin:0; letter-spacing:.01em; }
+  #topbar .sub{ font-size:11.5px; color:var(--text-dim); margin-top:2px; }
+  #controls{ display:flex; gap:8px; pointer-events:auto; }
+  .btn{
+    background:var(--panel-bg); border:1px solid var(--panel-border); color:var(--text);
+    font-family:var(--sans); font-size:12.5px; padding:8px 12px; border-radius:8px;
+    cursor:pointer; display:flex; align-items:center; gap:6px; backdrop-filter: blur(6px);
+    transition: border-color .15s, background .15s;
+  }
+  .btn:hover{ border-color:var(--accent); }
+  .btn.active{ border-color:var(--accent); color:var(--accent); }
+  .btn:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  /* Left process panel */
+  #processPanel{
+    position:fixed; top:76px; left:14px; width:236px; max-height:min(58vh, 480px);
+    background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:12px;
+    padding:10px; z-index:15; backdrop-filter: blur(8px); overflow-y:auto;
+  }
+  #processPanel h2{ font-size:11px; text-transform:none; color:var(--text-dim); margin:2px 6px 8px; font-weight:500; }
+  .proc-item{
+    display:flex; align-items:center; gap:10px; padding:8px 8px; border-radius:8px;
+    cursor:pointer; border:1px solid transparent; margin-bottom:2px;
+  }
+  .proc-item:hover{ background:rgba(255,255,255,0.04); }
+  .proc-item.active{ border-color:var(--accent); background:rgba(255,179,0,0.08); }
+  .proc-num{
+    width:22px; height:22px; border-radius:50%; flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--mono); font-size:11px; font-weight:700; color:#0e1116;
+  }
+  .proc-name{ font-size:12.5px; line-height:1.3; }
+  .dot-blue{ background:var(--blue); } .dot-green{ background:var(--green); }
+  .dot-purple{ background:var(--purple); }
+
+  /* Legend */
+  #legend{
+    position:fixed; left:14px; bottom:14px; z-index:15;
+    background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:10px;
+    padding:9px 12px; display:flex; gap:12px; flex-wrap:wrap; backdrop-filter: blur(8px);
+  }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-dim); }
+  .swatch{ width:9px; height:9px; border-radius:3px; }
+
+  /* HMI panel */
+  #hmi{
+    position:fixed; right:14px; bottom:14px; z-index:15; width:250px;
+    background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:12px;
+    padding:12px 14px; backdrop-filter: blur(8px);
+  }
+  #hmi .hmi-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  #hmi .hmi-title{ font-size:11.5px; color:var(--text-dim); }
+  #hmi .live{ display:flex; align-items:center; gap:5px; font-size:10px; color:var(--green); font-family:var(--mono); }
+  #hmi .live .pip{ width:6px; height:6px; border-radius:50%; background:var(--green); animation:pulse 1.4s infinite; }
+  @keyframes pulse{ 0%,100%{ opacity:1;} 50%{ opacity:.25;} }
+  .hmi-grid{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .hmi-cell{ background:rgba(255,255,255,0.03); border:1px solid var(--panel-border); border-radius:8px; padding:8px 6px; text-align:center; }
+  .hmi-num{ font-family:var(--mono); font-size:18px; font-weight:700; }
+  .hmi-label{ font-size:9.5px; color:var(--text-dim); margin-top:3px; }
+  #hmi .rate{ margin-top:8px; font-size:10.5px; color:var(--text-dim); display:flex; justify-content:space-between; font-family:var(--mono); }
+
+  /* Station labels (DOM, projected) */
+  .station-label{
+    position:fixed; transform:translate(-50%,-100%); z-index:8; pointer-events:none;
+    display:flex; align-items:center; gap:6px; font-size:11px; white-space:nowrap;
+    background:rgba(14,17,22,0.72); border:1px solid var(--panel-border); border-radius:7px;
+    padding:3px 8px 3px 5px; backdrop-filter: blur(3px);
+  }
+  .station-label .num{
+    font-family:var(--mono); font-size:9.5px; width:16px; height:16px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; color:#0e1116; font-weight:700;
+  }
+
+  /* Bottom info bar */
+  #infoBar{
+    position:fixed; left:50%; bottom:14px; transform:translateX(-50%) translateY(120%);
+    max-width:min(640px, 82vw); z-index:16; background:var(--panel-bg); border:1px solid var(--panel-border);
+    border-radius:12px; padding:12px 16px; backdrop-filter: blur(8px); transition:transform .35s ease;
+    display:flex; gap:12px; align-items:flex-start;
+  }
+  #infoBar.show{ transform:translateX(-50%) translateY(0); }
+  #infoBar .ib-badge{
+    font-family:var(--mono); font-size:12px; font-weight:700; color:#0e1116;
+    width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex:0 0 auto;
+  }
+  #infoBar .ib-name{ font-size:13px; font-weight:600; margin-bottom:2px; }
+  #infoBar .ib-desc{ font-size:12px; color:var(--text-dim); line-height:1.5; }
+  #infoBar .ib-close{ margin-left:auto; background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:16px; line-height:1; padding:2px; }
+
+  @media (max-width: 760px){
+    #processPanel{ display:none; }
+    #hmi{ width:auto; left:14px; right:14px; }
+    .hmi-grid{ grid-template-columns:repeat(3,1fr); }
+    #topbar h1{ font-size:14px; }
+    #topbar .sub{ display:none; }
+    .btn span.label{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spin"></div>
+  <div class="msg" id="loadMsg">설비 초기화 중...</div>
+</div>
+
+<div id="topbar">
+  <div class="title-block">
+    <h1>PLC 기반 ECU 자동 생산·검사 라인</h1>
+    <div class="sub">자동차 전장품(ECU) 조립·검사 공정 3D 시뮬레이션</div>
+  </div>
+  <div id="controls">
+    <button class="btn active" id="btnPlay" title="컨베이어 재생/정지">⏸ <span class="label">정지</span></button>
+    <button class="btn" id="btnRotate" title="자동 회전">↻ <span class="label">자동회전</span></button>
+    <button class="btn" id="btnReset" title="시점 초기화">⤢ <span class="label">시점 초기화</span></button>
+  </div>
+</div>
+
+<div id="processPanel">
+  <h2>공정 순서 (클릭하여 이동)</h2>
+  <div id="procList"></div>
+</div>
+
+<div id="legend">
+  <div class="legend-item"><span class="swatch dot-blue"></span>자재/공급 공정</div>
+  <div class="legend-item"><span class="swatch dot-green"></span>조립/구동 공정</div>
+  <div class="legend-item"><span class="swatch dot-purple"></span>검사 공정</div>
+  <div class="legend-item"><span class="swatch" style="background:var(--red)"></span>불량품</div>
+</div>
+
+<div id="hmi">
+  <div class="hmi-head">
+    <div class="hmi-title">생산라인 모니터링 · HMI</div>
+    <div class="live"><span class="pip"></span>LIVE</div>
+  </div>
+  <div class="hmi-grid">
+    <div class="hmi-cell"><div class="hmi-num" id="numTotal" style="color:var(--text)">0</div><div class="hmi-label">생산 수량</div></div>
+    <div class="hmi-cell"><div class="hmi-num" id="numGood" style="color:var(--green)">0</div><div class="hmi-label">양품 수량</div></div>
+    <div class="hmi-cell"><div class="hmi-num" id="numBad" style="color:var(--red)">0</div><div class="hmi-label">불량 수량</div></div>
+  </div>
+  <div class="rate"><span>양품률</span><span id="numRate">100.0%</span></div>
+</div>
+
+<div id="infoBar">
+  <div class="ib-badge" id="ibBadge">1</div>
+  <div>
+    <div class="ib-name" id="ibName">공정명</div>
+    <div class="ib-desc" id="ibDesc">설명</div>
+  </div>
+  <button class="ib-close" id="ibClose">✕</button>
+</div>
+
+<div id="labelLayer"></div>
+
+<div id="app"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ---------------------------------------------------------------
+   설정값 / 색상
+--------------------------------------------------------------- */
+const COLOR = {
+  blue: 0x5b9bff, green: 0x35c47f, purple: 0xb48af0, red: 0xff5f6d,
+  accent: 0xffb300, steel: 0x8b93a0, steelDark: 0x4b525c, dark: 0x21252c,
+  pcb: 0x1f6f4a, gold: 0xd9b25b, cream: 0xd8cdb8, floor: 0x1b1f26
+};
+
+const STATIONS = [
+  { id:1, x:-24, z:0, name:'원자재 투입', color:'blue', desc:'커넥터, PCB, 하우징 등 원자재를 자동으로 라인에 투입합니다.' },
+  { id:2, x:-18, z:0, name:'부품 공급 / 정렬', color:'blue', desc:'진동볼 피더가 소형 부품의 방향을 정렬해 순서대로 공급합니다.' },
+  { id:3, x:-12, z:0, name:'PCB / 하우징 투입', color:'blue', desc:'컨베이어 이송으로 PCB와 하우징을 조립 라인 위에 투입합니다.' },
+  { id:4, x:-6,  z:0, name:'부품 자동 조립', color:'green', desc:'로봇 암과 실린더가 부품을 픽앤플레이스 방식으로 자동 조립합니다.' },
+  { id:5, x:0,   z:0, name:'체결 / 압입', color:'green', desc:'스크류 체결기와 압입기로 조립된 부품을 견고하게 고정합니다.' },
+  { id:6, x:6,   z:0, name:'전기적 검사', color:'purple', desc:'테스터로 전압·저항 등 전기적 특성을 측정해 불량을 판별합니다.' },
+  { id:7, x:12,  z:0, name:'외관 검사', color:'purple', desc:'비전 카메라로 스크래치·조립 불량 등 외관 상태를 검사합니다.' },
+  { id:8, x:18,  z:0, name:'양품 / 불량 분류', color:'green', desc:'검사 결과에 따라 분류 컨베이어가 양품과 불량품을 자동으로 분리합니다.' },
+  { id:9, x:24,  z:0, name:'완제품 배출', color:'green', desc:'양품을 포장 박스에 담아 완제품으로 배출합니다.' },
+];
+const COLOR_HEX = { blue:'#5b9bff', green:'#35c47f', purple:'#b48af0' };
+const LINE_Y = 1.05;          // 컨베이어 상판 높이
+const SPAWN_X = -30;
+const SORT_X = 18;
+const PACK_X = 24;
+const SPEED = 3.6;
+
+/* ---------------------------------------------------------------
+   기본 씬 셋업
+--------------------------------------------------------------- */
+const app = document.getElementById('app');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x11151b);
+scene.fog = new THREE.Fog(0x11151b, 46, 130);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 400);
+const DEFAULT_CAM_POS = new THREE.Vector3(6, 24, 46);
+const DEFAULT_TARGET = new THREE.Vector3(0, 3, 0);
+camera.position.copy(DEFAULT_CAM_POS);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.copy(DEFAULT_TARGET);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 8;
+controls.maxDistance = 90;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.update();
+
+/* ---------------------------------------------------------------
+   조명
+--------------------------------------------------------------- */
+scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x14161a, 0.75));
+
+const sun = new THREE.DirectionalLight(0xfff3dd, 1.15);
+sun.position.set(-20, 40, 22);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -50; sun.shadow.camera.right = 50;
+sun.shadow.camera.top = 40; sun.shadow.camera.bottom = -40;
+sun.shadow.camera.far = 120;
+sun.shadow.bias = -0.0015;
+scene.add(sun);
+
+const fillLight = new THREE.DirectionalLight(0x8fb3ff, 0.25);
+fillLight.position.set(20, 15, -20);
+scene.add(fillLight);
+
+// 천장 조명 (공정 라인 위)
+const ceilingLights = [];
+[-20, -4, 12, 26].forEach(x=>{
+  const pl = new THREE.PointLight(0xfff0d0, 30, 34, 2);
+  pl.position.set(x, 13, 0);
+  scene.add(pl);
+  ceilingLights.push(pl);
+  const fixGeo = new THREE.CylinderGeometry(1.1, 1.1, 0.25, 20);
+  const fixMat = new THREE.MeshStandardMaterial({ color:0xf5f2e8, emissive:0xfff2c8, emissiveIntensity:0.9, roughness:0.5 });
+  const fix = new THREE.Mesh(fixGeo, fixMat);
+  fix.position.set(x, 12.85, 0);
+  scene.add(fix);
+});
+
+/* ---------------------------------------------------------------
+   텍스처 유틸 (캔버스 절차적 생성)
+--------------------------------------------------------------- */
+function stripeTexture({w=64,h=64, base='#2b2f36', stripe='#20232a', angle=true}={}){
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = base; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle = stripe; ctx.lineWidth = w*0.16;
+  for(let i=-h;i<w+h;i+=w*0.22){
+    ctx.beginPath();
+    if(angle){ ctx.moveTo(i,h); ctx.lineTo(i+h,0); } else { ctx.moveTo(i,0); ctx.lineTo(i,h); }
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+function hazardTexture(){
+  const c = document.createElement('canvas'); c.width=64; c.height=16;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#151719'; ctx.fillRect(0,0,64,16);
+  ctx.fillStyle = '#ffb300';
+  ctx.save(); ctx.translate(0,0);
+  for(let i=-16;i<80;i+=16){
+    ctx.beginPath();
+    ctx.moveTo(i,16); ctx.lineTo(i+8,0); ctx.lineTo(i+16,0); ctx.lineTo(i+8,16);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+function floorTexture(){
+  const c = document.createElement('canvas'); c.width=256; c.height=256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1a1e24'; ctx.fillRect(0,0,256,256);
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.lineWidth = 2;
+  for(let i=0;i<=256;i+=32){ ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(256,i); ctx.stroke(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(24, 12);
+  return tex;
+}
+const beltTex = stripeTexture({ base:'#2c3038', stripe:'#20242b' });
+beltTex.repeat.set(1, 6);
+
+function makeCanvasScreen(w, h, drawFn){
+  const c = document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx = c.getContext('2d');
+  drawFn(ctx, w, h);
+  const tex = new THREE.CanvasTexture(c);
+  return { canvas:c, ctx, tex };
+}
+
+/* ---------------------------------------------------------------
+   바닥 / 라인 베이스
+--------------------------------------------------------------- */
+const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture(), roughness:0.92, metalness:0.05 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(160, 80), floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// 안전선(해저드 스트라이프) - 라인 양옆
+const hazMat = new THREE.MeshBasicMaterial({ map: hazardTexture() });
+[ -3.6, 3.6 ].forEach(z=>{
+  const tex = hazardTexture(); tex.repeat.set(30,1);
+  const m = new THREE.MeshBasicMaterial({ map: tex });
+  const strip = new THREE.Mesh(new THREE.PlaneGeometry(62, 0.4), m);
+  strip.rotation.x = -Math.PI/2; strip.position.set(0, 0.01, z);
+  scene.add(strip);
+});
+
+/* ---------------------------------------------------------------
+   컨베이어 라인 (전체 관통)
+--------------------------------------------------------------- */
+const conveyorGroup = new THREE.Group();
+scene.add(conveyorGroup);
+
+function buildConveyor(xStart, xEnd, z=0, width=2.4){
+  const len = xEnd - xStart;
+  const cx = (xStart+xEnd)/2;
+  const grp = new THREE.Group();
+  // 프레임
+  const frameMat = new THREE.MeshStandardMaterial({ color: COLOR.steelDark, metalness:0.6, roughness:0.45 });
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(len, 0.5, width), frameMat);
+  frame.position.set(cx, LINE_Y-0.35, z);
+  frame.castShadow = true; frame.receiveShadow = true;
+  grp.add(frame);
+  // 벨트 상판
+  const beltMat = new THREE.MeshStandardMaterial({ map: beltTex.clone(), color: 0xffffff, roughness:0.8, metalness:0.15 });
+  beltMat.map.repeat.set(len/2.2, 1);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(len, 0.08, width-0.15), beltMat);
+  belt.position.set(cx, LINE_Y, z);
+  belt.receiveShadow = true;
+  grp.add(belt);
+  grp.userData.beltMat = beltMat;
+  // 사이드 레일
+  const railMat = new THREE.MeshStandardMaterial({ color: COLOR.steel, metalness:0.7, roughness:0.35 });
+  [width/2-0.05, -width/2+0.05].forEach(zz=>{
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.14, 0.08), railMat);
+    rail.position.set(cx, LINE_Y+0.11, z+zz);
+    grp.add(rail);
+  });
+  // 롤러 (일정 간격)
+  const rollerMat = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness:0.8, roughness:0.3 });
+  const rollers = [];
+  for(let x=xStart+1; x<=xEnd-1; x+=1.6){
+    const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,width-0.2,14), rollerMat);
+    roller.rotation.x = Math.PI/2;
+    roller.position.set(x, LINE_Y-0.42, z);
+    grp.add(roller);
+    rollers.push(roller);
+  }
+  grp.userData.rollers = rollers;
+  // 다리
+  const legMat = new THREE.MeshStandardMaterial({ color: COLOR.dark, metalness:0.5, roughness:0.55 });
+  for(let x=xStart+1.2; x<=xEnd-1.2; x+=6){
+    [width/2-0.15, -width/2+0.15].forEach(zz=>{
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, LINE_Y-0.42, 0.18), legMat);
+      leg.position.set(x, (LINE_Y-0.42)/2, z+zz);
+      leg.castShadow = true;
+      grp.add(leg);
+    });
+  }
+  return grp;
+}
+
+const mainConveyor = buildConveyor(SPAWN_X-2, PACK_X+6, 0);
+conveyorGroup.add(mainConveyor);
+
+// 불량 분류용 측면 컨베이어 (station8 옆, -z 방향)
+const rejectConveyor = buildConveyor(SORT_X-1.4, SORT_X+3.4, -3.4, 1.6);
+rejectConveyor.rotation.y = 0; // parallel offset already via z
+conveyorGroup.add(rejectConveyor);
+
+/* ---------------------------------------------------------------
+   제품 (PCB 어셈블리) 생성
+--------------------------------------------------------------- */
+function createProduct(){
+  const grp = new THREE.Group();
+  const boardMat = new THREE.MeshStandardMaterial({ color: COLOR.pcb, roughness:0.55, metalness:0.15 });
+  const board = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.07, 0.55), boardMat);
+  board.castShadow = true; board.receiveShadow = true;
+  grp.add(board);
+  const chipMat = new THREE.MeshStandardMaterial({ color:0x1a1a1e, roughness:0.4, metalness:0.3 });
+  for(let i=0;i<3;i++){
+    const chip = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.05,0.14), chipMat);
+    chip.position.set(-0.25+i*0.22, 0.06, (i%2===0? 0.1:-0.1));
+    chip.castShadow = true;
+    grp.add(chip);
+  }
+  const goldMat = new THREE.MeshStandardMaterial({ color: COLOR.gold, roughness:0.3, metalness:0.85 });
+  for(let i=0;i<4;i++){
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.018,0.09,8), goldMat);
+    pin.position.set(-0.34+ (i*0.23), 0.06, 0.2);
+    pin.castShadow = true;
+    grp.add(pin);
+  }
+  const connMat = new THREE.MeshStandardMaterial({ color:0x33383f, roughness:0.5, metalness:0.4 });
+  const conn = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.08,0.12), connMat);
+  conn.position.set(0.32, 0.075, -0.15);
+  grp.add(conn);
+  return grp;
+}
+
+/* ---------------------------------------------------------------
+   스테이션 모델링 함수들
+--------------------------------------------------------------- */
+function labelPost(x,z,h,colorHex){
+  const mat = new THREE.MeshStandardMaterial({ color:0x1a1c20, roughness:0.6 });
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,h,10), mat);
+  post.position.set(x, h/2, z);
+  scene.add(post);
+}
+
+// --- Station 1: 원자재 투입 (선반 + 자재 박스) ---
+function buildStation1(x){
+  const g = new THREE.Group();
+  const rackMat = new THREE.MeshStandardMaterial({ color: COLOR.steel, metalness:0.6, roughness:0.4 });
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.2, 1.1), new THREE.MeshStandardMaterial({color:0x2a2e35, metalness:0.3, roughness:0.7, transparent:true, opacity:0}));
+  g.add(frame);
+  // 프레임 기둥
+  [[-1.2,-0.45],[1.2,-0.45],[-1.2,0.45],[1.2,0.45]].forEach(([dx,dz])=>{
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08,2.2,0.08), rackMat);
+    post.position.set(dx, 1.1, dz);
+    post.castShadow = true;
+    g.add(post);
+  });
+  const binColors = [0x5b9bff, 0x35c47f, 0xd8cdb8, 0xffb300, 0xb48af0, 0x9aa4b2];
+  let idx=0;
+  for(let row=0; row<2; row++){
+    for(let col=0; col<3; col++){
+      const binMat = new THREE.MeshStandardMaterial({ color: binColors[idx%binColors.length], roughness:0.55, metalness:0.1 });
+      const bin = new THREE.Mesh(new THREE.BoxGeometry(0.7,0.5,0.85), binMat);
+      bin.position.set(-0.75+col*0.75, 0.5+row*0.95, 0);
+      bin.castShadow = true; bin.receiveShadow = true;
+      g.add(bin);
+      idx++;
+    }
+  }
+  const shelfMat = new THREE.MeshStandardMaterial({ color:0x3a3f47, metalness:0.5, roughness:0.5 });
+  [0.28, 1.23].forEach(y=>{
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.5,0.05,1), shelfMat);
+    shelf.position.set(0,y,0);
+    shelf.receiveShadow = true;
+    g.add(shelf);
+  });
+  g.position.set(x, 0, 2.3);
+  scene.add(g);
+  return { update(){} };
+}
+
+// --- Station 2: 부품 공급/정렬 (진동볼 피더) ---
+function buildStation2(x){
+  const g = new THREE.Group();
+  const baseMat = new THREE.MeshStandardMaterial({ color: COLOR.dark, metalness:0.5, roughness:0.5 });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.65,0.7,20), baseMat);
+  base.position.y = 0.35; base.castShadow = true;
+  g.add(base);
+  const bowlMat = new THREE.MeshStandardMaterial({ color: COLOR.steel, metalness:0.75, roughness:0.3 });
+  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.85,0.55,0.35,24,1,true), bowlMat);
+  bowl.position.y = 0.95; bowl.castShadow = true;
+  g.add(bowl);
+  const spiralMat = new THREE.MeshStandardMaterial({ color: 0x9aa4b2, metalness:0.7, roughness:0.35 });
+  const spiral = new THREE.Mesh(new THREE.TorusGeometry(0.68, 0.05, 8, 40), spiralMat);
+  spiral.rotation.x = Math.PI/2; spiral.position.y = 1.02;
+  g.add(spiral);
+  const partsMat = new THREE.MeshStandardMaterial({ color: 0xffb300, metalness:0.4, roughness:0.4 });
+  const partsRing = new THREE.Group();
+  for(let i=0;i<10;i++){
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,0.06), partsMat);
+    const a = (i/10)*Math.PI*2;
+    p.position.set(Math.cos(a)*0.65, 1.06, Math.sin(a)*0.65);
+    partsRing.add(p);
+  }
+  g.add(partsRing);
+  g.position.set(x, 0, 1.6);
+  scene.add(g);
+  return { update(t){ g.rotation.z = Math.sin(t*22)*0.012; partsRing.rotation.y = t*0.6; } };
+}
+
+// --- Station 3: PCB/하우징 투입 (측면 소형 컨베이어 + PCB 스택) ---
+function buildStation3(x){
+  const g = new THREE.Group();
+  const feed = buildConveyor(-1.1, 1.1, 0, 1.2);
+  feed.rotation.y = Math.PI/2;
+  feed.position.set(x, 0, 1.9);
+  scene.add(feed);
+  const stackMat = new THREE.MeshStandardMaterial({ color: COLOR.pcb, roughness:0.5 });
+  const boards = [];
+  for(let i=0;i<6;i++){
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.85,0.05,0.55), stackMat);
+    b.position.set(x, LINE_Y+0.08+i*0.06, 2.5);
+    b.castShadow = true;
+    scene.add(b);
+    boards.push(b);
+  }
+  return { update(t){ boards.forEach((b,i)=>{ b.position.y = LINE_Y+0.08+i*0.06 + Math.sin(t*2+i)*0.004; }); } };
+}
+
+// --- Station 4: 부품 자동 조립 (관절형 로봇 암) ---
+function buildStation4(x){
+  const g = new THREE.Group();
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0xdedfe2, metalness:0.55, roughness:0.35 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: COLOR.green, metalness:0.4, roughness:0.4 });
+  const jointMat = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness:0.6, roughness:0.4 });
+
+  const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.5,1.4,16), steelMat);
+  pedestal.position.y = 0.7; pedestal.castShadow = true;
+  g.add(pedestal);
+
+  const shoulder = new THREE.Group();
+  shoulder.position.set(0, 1.4, 0);
+  g.add(shoulder);
+  const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.28,16,16), jointMat);
+  shoulder.add(shoulderJoint);
+
+  const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.26,1.3,0.26), accentMat);
+  upperArm.position.set(0, 0.65, 0);
+  upperArm.castShadow = true;
+  shoulder.add(upperArm);
+
+  const elbow = new THREE.Group();
+  elbow.position.set(0, 1.3, 0);
+  shoulder.add(elbow);
+  const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.2,14,14), jointMat);
+  elbow.add(elbowJoint);
+
+  const foreArm = new THREE.Mesh(new THREE.BoxGeometry(0.2,1.0,0.2), steelMat);
+  foreArm.position.set(0, 0.5, 0);
+  foreArm.castShadow = true;
+  elbow.add(foreArm);
+
+  const wrist = new THREE.Group();
+  wrist.position.set(0, 1.0, 0);
+  elbow.add(wrist);
+  const gripperBase = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.15,10), jointMat);
+  gripperBase.rotation.x = Math.PI/2;
+  wrist.add(gripperBase);
+  const prongMat = new THREE.MeshStandardMaterial({ color: 0xffb300, metalness:0.5, roughness:0.4 });
+  const prongL = new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,0.28), prongMat);
+  const prongR = prongL.clone();
+  prongL.position.set(-0.07,-0.05,0.16);
+  prongR.position.set(0.07,-0.05,0.16);
+  wrist.add(prongL, prongR);
+
+  g.position.set(x, 0, 1.5);
+  scene.add(g);
+
+  return {
+    update(t){
+      shoulder.rotation.y = Math.sin(t*1.1)*0.55 - 0.15;
+      elbow.rotation.z = -0.5 + Math.sin(t*1.6+1)*0.35;
+      wrist.rotation.x = Math.sin(t*1.6)*0.3;
+      const grip = (Math.sin(t*3.2)+1)/2;
+      prongL.position.x = -0.06 - grip*0.05;
+      prongR.position.x = 0.06 + grip*0.05;
+    }
+  };
+}
+
+// --- Station 5: 체결/압입 (갠트리 + 스크류 체결기 + 압입 램) ---
+function buildStation5(x){
+  const g = new THREE.Group();
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, metalness:0.6, roughness:0.4 });
+  [[-0.9,-0.55],[0.9,-0.55],[-0.9,0.55],[0.9,0.55]].forEach(([dx,dz])=>{
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12,2.6,0.12), frameMat);
+    leg.position.set(dx,1.3,dz); leg.castShadow=true;
+    g.add(leg);
+  });
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(2.0,0.18,1.3), frameMat);
+  beam.position.set(0,2.5,0); beam.castShadow=true;
+  g.add(beam);
+
+  // 스크류 체결기 헤드
+  const headMat = new THREE.MeshStandardMaterial({ color: COLOR.green, metalness:0.4, roughness:0.4 });
+  const screwHead = new THREE.Group();
+  const headBody = new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.5,14), headMat);
+  screwHead.add(headBody);
+  const bitMat = new THREE.MeshStandardMaterial({ color:0xcfd3d8, metalness:0.8, roughness:0.2 });
+  const bit = new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.35,8), bitMat);
+  bit.position.y = -0.42;
+  screwHead.add(bit);
+  screwHead.position.set(-0.6, 1.9, 0);
+  g.add(screwHead);
+
+  // 압입 램
+  const ramMat = new THREE.MeshStandardMaterial({ color: 0xffb300, metalness:0.5, roughness:0.3 });
+  const ramCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.6,14), new THREE.MeshStandardMaterial({color:0x2a2d33, metalness:0.6, roughness:0.4}));
+  ramCyl.position.set(0.6, 2.1, 0);
+  g.add(ramCyl);
+  const ramHead = new THREE.Mesh(new THREE.BoxGeometry(0.32,0.14,0.32), ramMat);
+  ramHead.position.set(0.6, 1.85, 0);
+  g.add(ramHead);
+
+  g.position.set(x,0,1.4);
+  scene.add(g);
+
+  return {
+    update(t){
+      const s1 = Math.max(0, Math.sin(t*3.4));
+      screwHead.position.y = 1.9 - s1*0.35;
+      const s2 = Math.max(0, Math.sin(t*3.4 + Math.PI*0.5));
+      ramHead.position.y = 1.85 - s2*0.3;
+      ramCyl.position.y = 2.1 - s2*0.15;
+    }
+  };
+}
+
+// --- Station 6: 전기적 검사 (테스터 + 프로브 + 스크린) ---
+function buildStation6(x){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2b2f37, metalness:0.5, roughness:0.4 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.1,1.4,0.9), bodyMat);
+  body.position.set(0,0.7,-0.9); body.castShadow = true;
+  g.add(body);
+
+  const screenData = makeCanvasScreen(128,96,(ctx,w,h)=>{
+    ctx.fillStyle = '#08120c'; ctx.fillRect(0,0,w,h);
+  });
+  const screenMat = new THREE.MeshStandardMaterial({ map: screenData.tex, emissive: 0x113322, emissiveIntensity:0.6, roughness:0.4 });
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.7,0.5), screenMat);
+  screen.position.set(0,1.05,-0.44);
+  g.add(screen);
+
+  const armMat = new THREE.MeshStandardMaterial({ color: COLOR.steel, metalness:0.6, roughness:0.3 });
+  const probeArm = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.6,0.1), armMat);
+  probeArm.position.set(0,1.55,0);
+  g.add(probeArm);
+  const probeHead = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.14,12), new THREE.MeshStandardMaterial({color:COLOR.purple, metalness:0.4, roughness:0.4}));
+  probeHead.position.set(0,1.2,0);
+  g.add(probeHead);
+  const pinMat = new THREE.MeshStandardMaterial({ color:0xd9b25b, metalness:0.8, roughness:0.25 });
+  const pins = [];
+  for(let i=0;i<3;i++){
+    const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,0.18,6), pinMat);
+    pin.position.set(-0.1+i*0.1, 1.05, 0);
+    g.add(pin); pins.push(pin);
+  }
+
+  g.position.set(x,0,1.0);
+  scene.add(g);
+
+  let flick = 0;
+  return {
+    update(t, dt){
+      const s = Math.max(0, Math.sin(t*3.0));
+      probeArm.position.y = 1.55 - s*0.32; probeHead.position.y = 1.2-s*0.32;
+      pins.forEach(p=>{ p.position.y = 1.05 - s*0.32; });
+      flick += dt;
+      if(flick > 0.4){
+        flick = 0;
+        const ctx = screenData.ctx;
+        ctx.fillStyle = '#08120c'; ctx.fillRect(0,0,128,96);
+        ctx.strokeStyle = '#4be08a'; ctx.lineWidth = 2; ctx.beginPath();
+        for(let px=0; px<128; px++){
+          const py = 48 + Math.sin(px*0.35 + t*6)*18*Math.exp(-Math.abs(px-64)/70) + (Math.random()-0.5)*4;
+          if(px===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+        }
+        ctx.stroke();
+        screenData.tex.needsUpdate = true;
+      }
+    }
+  };
+}
+
+// --- Station 7: 외관 검사 (비전 카메라 + 링라이트) ---
+function buildStation7(x){
+  const g = new THREE.Group();
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, metalness:0.6, roughness:0.4 });
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,2.0,10), poleMat);
+  pole.position.set(0,1.0,-0.8);
+  g.add(pole);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.1,0.1), poleMat);
+  arm.position.set(-0.4,2.0,-0.8);
+  g.add(arm);
+
+  const camBodyMat = new THREE.MeshStandardMaterial({ color: 0x1c1e22, metalness:0.6, roughness:0.3 });
+  const camBody = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.28,0.4), camBodyMat);
+  camBody.position.set(-0.8,1.85,-0.8);
+  camBody.rotation.x = Math.PI/2.4;
+  g.add(camBody);
+  const lensMat = new THREE.MeshStandardMaterial({ color: 0x11151a, metalness:0.8, roughness:0.15 });
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.16,16), lensMat);
+  lens.position.set(-0.8,1.6,-0.62);
+  lens.rotation.x = Math.PI/2.4;
+  g.add(lens);
+
+  const ringMat = new THREE.MeshStandardMaterial({ color:0xffffff, emissive:0xffffff, emissiveIntensity:0.4, metalness:0.2, roughness:0.3 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16,0.025,10,24), ringMat);
+  ring.position.set(-0.8,1.5,-0.55);
+  ring.rotation.x = Math.PI/2.4;
+  g.add(ring);
+  const spot = new THREE.SpotLight(0xffffff, 0, 3, Math.PI/6, 0.5);
+  spot.position.set(-0.8,1.55,-0.55);
+  spot.target.position.set(-0.8,1.05,0.9);
+  g.add(spot); g.add(spot.target);
+
+  g.position.set(x,0,0.9);
+  scene.add(g);
+
+  return {
+    update(t, dt, flashTrigger){
+      if(flashTrigger){
+        ring.material.emissiveIntensity = 2.2;
+        spot.intensity = 6;
+      } else {
+        ring.material.emissiveIntensity = Math.max(0.4, ring.material.emissiveIntensity*0.9);
+        spot.intensity = Math.max(0, spot.intensity*0.85);
+      }
+    }
+  };
+}
+
+// --- Station 8: 분류 (디버터 + 불량 빈) ---
+function buildStation8(x){
+  const g = new THREE.Group();
+  const hingeGroup = new THREE.Group();
+  hingeGroup.position.set(0, LINE_Y+0.05, -1.15);
+  g.add(hingeGroup);
+  const flapMat = new THREE.MeshStandardMaterial({ color: 0xffb300, metalness:0.5, roughness:0.35 });
+  const flap = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,1.3), flapMat);
+  flap.position.set(0,0,0.65);
+  hingeGroup.add(flap);
+
+  const binMat = new THREE.MeshStandardMaterial({ color: COLOR.red, metalness:0.2, roughness:0.6 });
+  const bin = new THREE.Mesh(new THREE.BoxGeometry(1.3,0.6,1.3), binMat);
+  bin.position.set(0, 0.3, -3.5);
+  bin.castShadow = true;
+  g.add(bin);
+  const binLight = new THREE.PointLight(0xff3344, 0, 3, 2);
+  binLight.position.set(0,1.0,-3.5);
+  g.add(binLight);
+
+  const signMat = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness:0.3, roughness:0.6 });
+  const signPost = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.4,8), signMat);
+  signPost.position.set(0.9,0.7,0);
+  g.add(signPost);
+
+  g.position.set(x,0,0);
+  scene.add(g);
+
+  return {
+    update(t, divertActive){
+      const target = divertActive ? -0.5 : 0;
+      hingeGroup.rotation.y += (target - hingeGroup.rotation.y)*0.15;
+      binLight.intensity = Math.max(0, binLight.intensity*0.9);
+    },
+    flashBin(){ binLight.intensity = 4; }
+  };
+}
+
+// --- Station 9: 완제품 배출 (포장 박스 스택) ---
+function buildStation9(x){
+  const g = new THREE.Group();
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0xb98a4e, roughness:0.85 });
+  const tapeMat = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness:0.7 });
+  const stack = [];
+  let bx = 1.6;
+  for(let row=0; row<2; row++){
+    for(let col=0; col<2; col++){
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.45,0.6), boxMat);
+      box.position.set(bx+col*0.05, 0.225+row*0.46, -0.6+col*0.7);
+      box.castShadow = true; box.receiveShadow = true;
+      g.add(box);
+      const tape = new THREE.Mesh(new THREE.BoxGeometry(0.62,0.08,0.62), tapeMat);
+      tape.position.copy(box.position);
+      g.add(tape);
+    }
+  }
+  g.position.set(x,0,1.1);
+  scene.add(g);
+
+  // 출력 램프 (측면)
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(1.6,0.08,1.0), new THREE.MeshStandardMaterial({color:0x3a3f47, metalness:0.5, roughness:0.5}));
+  ramp.position.set(x+1.2, LINE_Y-0.02, 1.4);
+  scene.add(ramp);
+
+  return { update(){} };
+}
+
+/* ---------------------------------------------------------------
+   PLC 캐비닛 + HMI 스탠드 (3D 오브젝트)
+--------------------------------------------------------------- */
+function buildControlCabinet(){
+  const g = new THREE.Group();
+  const cabMat = new THREE.MeshStandardMaterial({ color: 0x2c313a, metalness:0.5, roughness:0.4 });
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.1,2.0,0.5), cabMat);
+  cab.position.y = 1.0; cab.castShadow = true;
+  g.add(cab);
+  const doorLineMat = new THREE.MeshStandardMaterial({ color: 0x1c1f24, metalness:0.5, roughness:0.5 });
+  const line = new THREE.Mesh(new THREE.BoxGeometry(0.02,1.9,0.02), doorLineMat);
+  line.position.set(0,1.0,0.26);
+  g.add(line);
+  const leds = [];
+  const ledColors = [0x35c47f, 0xffb300, 0x5b9bff];
+  for(let i=0;i<3;i++){
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.035,8,8), new THREE.MeshStandardMaterial({ color: ledColors[i], emissive: ledColors[i], emissiveIntensity:1 }));
+    led.position.set(-0.4+i*0.12, 1.75, 0.26);
+    g.add(led); leds.push(led);
+  }
+  const labelData = makeCanvasScreen(96,48,(ctx,w,h)=>{
+    ctx.fillStyle = '#e9e6da'; ctx.fillRect(0,0,w,h);
+    ctx.fillStyle = '#1c1f24'; ctx.font='bold 16px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('PLC', w/2, h/2+6);
+  });
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.4,0.2), new THREE.MeshStandardMaterial({ map: labelData.tex }));
+  plate.position.set(0,1.3,0.26);
+  g.add(plate);
+  g.position.set(SPAWN_X-1, 0, -3.6);
+  scene.add(g);
+  return { leds };
+}
+const plcCabinet = buildControlCabinet();
+
+function buildHMIStand(counts){
+  const g = new THREE.Group();
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x2c313a, metalness:0.55, roughness:0.4 });
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.1,1.3,10), poleMat);
+  pole.position.y = 0.65;
+  g.add(pole);
+  const screenData = makeCanvasScreen(256,180, ()=>{});
+  function draw(){
+    const ctx = screenData.ctx;
+    ctx.fillStyle = '#0d1a14'; ctx.fillRect(0,0,256,180);
+    ctx.fillStyle = '#8fe6b8'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign='left';
+    ctx.fillText('생산라인 모니터링', 12, 24);
+    ctx.font = '11px sans-serif'; ctx.fillStyle='#5fb894';
+    ctx.fillText(new Date().toLocaleDateString('ko-KR'), 12, 40);
+    const rows = [ ['생산 수량', counts.total, '#e8ebef'], ['양품 수량', counts.good, '#35c47f'], ['불량 수량', counts.bad, '#ff5f6d'] ];
+    rows.forEach((r,i)=>{
+      ctx.fillStyle = '#7d8a95'; ctx.font='11px sans-serif'; ctx.fillText(r[0], 12, 70+i*34);
+      ctx.fillStyle = r[2]; ctx.font='bold 22px sans-serif'; ctx.fillText(String(r[1]).padStart(4,'0'), 12, 92+i*34);
+    });
+    screenData.tex.needsUpdate = true;
+  }
+  draw();
+  const screenMat = new THREE.MeshStandardMaterial({ map: screenData.tex, emissive:0x0d1a14, emissiveIntensity:0.5, roughness:0.4 });
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.95,0.68), screenMat);
+  screen.position.set(0,1.5,0.03);
+  g.add(screen);
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(1.05,0.78,0.05), new THREE.MeshStandardMaterial({color:0x1c1f24, metalness:0.4, roughness:0.5}));
+  bezel.position.set(0,1.5,0);
+  g.add(bezel);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.4,0.1,20), poleMat);
+  base.position.y = 0.05;
+  g.add(base);
+  g.position.set(SPAWN_X+0.6, 0, -3.4);
+  g.rotation.y = 0.5;
+  scene.add(g);
+  return { draw };
+}
+
+/* ---------------------------------------------------------------
+   스테이션 인스턴스 생성
+--------------------------------------------------------------- */
+const st1 = buildStation1(STATIONS[0].x);
+const st2 = buildStation2(STATIONS[1].x);
+const st3 = buildStation3(STATIONS[2].x);
+const st4 = buildStation4(STATIONS[3].x);
+const st5 = buildStation5(STATIONS[4].x);
+const st6 = buildStation6(STATIONS[5].x);
+const st7 = buildStation7(STATIONS[6].x);
+const st8 = buildStation8(STATIONS[7].x);
+const st9 = buildStation9(STATIONS[8].x);
+const stationUpdaters = [st1,st2,st3,st4,st5,st6,st7,st8,st9];
+
+/* ---------------------------------------------------------------
+   카운터 & HMI
+--------------------------------------------------------------- */
+const counts = { total:0, good:0, bad:0 };
+const hmiStand = buildHMIStand(counts);
+const domNumTotal = document.getElementById('numTotal');
+const domNumGood = document.getElementById('numGood');
+const domNumBad = document.getElementById('numBad');
+const domNumRate = document.getElementById('numRate');
+function refreshHMI(){
+  domNumTotal.textContent = counts.total;
+  domNumGood.textContent = counts.good;
+  domNumBad.textContent = counts.bad;
+  const rate = counts.total ? (counts.good/counts.total*100) : 100;
+  domNumRate.textContent = rate.toFixed(1) + '%';
+  hmiStand.draw();
+}
+refreshHMI();
+
+/* ---------------------------------------------------------------
+   제품 흐름 관리
+--------------------------------------------------------------- */
+const products = [];
+let spawnTimer = 0;
+let running = true;
+
+function spawnProduct(){
+  const mesh = createProduct();
+  mesh.position.set(SPAWN_X, LINE_Y+0.08, 0);
+  scene.add(mesh);
+  products.push({ mesh, state:'conveying', good:true, sorted:false, boxTime:0 });
+}
+
+function updateProducts(dt, elapsed){
+  for(let i=products.length-1; i>=0; i--){
+    const p = products[i];
+    if(p.state === 'conveying'){
+      p.mesh.position.x += SPEED*dt;
+      p.mesh.rotation.y = Math.sin(elapsed*0.6+i)*0.02;
+      if(!p.sorted && p.mesh.position.x >= SORT_X){
+        p.sorted = true;
+        p.good = Math.random() < 0.9;
+        if(!p.good){ p.state = 'diverting'; st8.flashBin(); }
+      }
+      if(p.state === 'conveying' && p.mesh.position.x >= PACK_X){
+        p.state = 'boxing';
+        p.boxTime = elapsed;
+      }
+    } else if(p.state === 'diverting'){
+      p.mesh.position.x += SPEED*0.55*dt;
+      p.mesh.position.z += (-3.3 - p.mesh.position.z)*0.06;
+      p.mesh.rotation.z += dt*2;
+      if(p.mesh.position.z < -3.0){
+        scene.remove(p.mesh);
+        products.splice(i,1);
+        counts.total++; counts.bad++;
+        refreshHMI();
+      }
+    } else if(p.state === 'boxing'){
+      const t = elapsed - p.boxTime;
+      p.mesh.position.x += SPEED*0.35*dt;
+      const s = Math.max(0.001, 1 - t/0.7);
+      p.mesh.scale.setScalar(s);
+      p.mesh.position.y = LINE_Y+0.08 - (1-s)*0.15;
+      if(t > 0.7){
+        scene.remove(p.mesh);
+        products.splice(i,1);
+        counts.total++; counts.good++;
+        refreshHMI();
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------
+   프로세스 패널 / DOM 라벨
+--------------------------------------------------------------- */
+const procList = document.getElementById('procList');
+STATIONS.forEach(s=>{
+  const item = document.createElement('div');
+  item.className = 'proc-item';
+  item.dataset.id = s.id;
+  item.innerHTML = `<span class="proc-num" style="background:${COLOR_HEX[s.color]}">${s.id}</span><span class="proc-name">${s.name}</span>`;
+  item.addEventListener('click', ()=> selectStation(s.id));
+  procList.appendChild(item);
+});
+
+const labelLayer = document.getElementById('labelLayer');
+const labelEls = STATIONS.map(s=>{
+  const el = document.createElement('div');
+  el.className = 'station-label';
+  el.innerHTML = `<span class="num" style="background:${COLOR_HEX[s.color]}">${s.id}</span>${s.name}`;
+  labelLayer.appendChild(el);
+  return el;
+});
+
+const infoBar = document.getElementById('infoBar');
+const ibBadge = document.getElementById('ibBadge');
+const ibName = document.getElementById('ibName');
+const ibDesc = document.getElementById('ibDesc');
+document.getElementById('ibClose').addEventListener('click', ()=> infoBar.classList.remove('show'));
+
+let activeStation = null;
+let camTween = null;
+
+function selectStation(id){
+  const s = STATIONS.find(st=>st.id===id);
+  activeStation = id;
+  document.querySelectorAll('.proc-item').forEach(el=> el.classList.toggle('active', Number(el.dataset.id)===id));
+  ibBadge.style.background = COLOR_HEX[s.color];
+  ibBadge.textContent = s.id;
+  ibName.textContent = s.name;
+  ibDesc.textContent = s.desc;
+  infoBar.classList.add('show');
+
+  const from = { pos: camera.position.clone(), target: controls.target.clone() };
+  const to = {
+    pos: new THREE.Vector3(s.x + 6, 7.5, 9),
+    target: new THREE.Vector3(s.x, 2.2, 0)
+  };
+  camTween = { from, to, t:0, dur:0.9 };
+  controls.autoRotate = false;
+  btnRotate.classList.remove('active');
+}
+
+function updateLabels(){
+  const vw = window.innerWidth, vh = window.innerHeight;
+  STATIONS.forEach((s,i)=>{
+    const v = new THREE.Vector3(s.x, 6.6, 0);
+    v.project(camera);
+    const el = labelEls[i];
+    if(v.z > 1){ el.style.display='none'; return; }
+    el.style.display='flex';
+    el.style.left = ((v.x*0.5+0.5)*vw) + 'px';
+    el.style.top = ((-v.y*0.5+0.5)*vh) + 'px';
+  });
+}
+
+/* ---------------------------------------------------------------
+   컨트롤 버튼
+--------------------------------------------------------------- */
+const btnPlay = document.getElementById('btnPlay');
+const btnRotate = document.getElementById('btnRotate');
+const btnReset = document.getElementById('btnReset');
+
+btnPlay.addEventListener('click', ()=>{
+  running = !running;
+  btnPlay.innerHTML = running ? '⏸ <span class="label">정지</span>' : '▶ <span class="label">재생</span>';
+  btnPlay.classList.toggle('active', running);
+});
+btnRotate.addEventListener('click', ()=>{
+  controls.autoRotate = !controls.autoRotate;
+  btnRotate.classList.toggle('active', controls.autoRotate);
+});
+btnReset.addEventListener('click', ()=>{
+  camTween = { from:{ pos:camera.position.clone(), target:controls.target.clone() }, to:{ pos: DEFAULT_CAM_POS.clone(), target: DEFAULT_TARGET.clone() }, t:0, dur:0.9 };
+  activeStation = null;
+  document.querySelectorAll('.proc-item').forEach(el=> el.classList.remove('active'));
+  infoBar.classList.remove('show');
+});
+
+/* ---------------------------------------------------------------
+   리사이즈
+--------------------------------------------------------------- */
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---------------------------------------------------------------
+   메인 루프
+--------------------------------------------------------------- */
+const clock = new THREE.Clock();
+let elapsed = 0;
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if(running) elapsed += dt;
+
+  // 컨베이어 벨트 텍스처 이동 + 롤러 회전
+  [mainConveyor, rejectConveyor].forEach(c=>{
+    if(running){
+      c.userData.beltMat.map.offset.y += dt*0.6;
+      c.userData.rollers.forEach(r=> r.rotation.z += dt*3);
+    }
+  });
+
+  if(running){
+    spawnTimer += dt;
+    if(spawnTimer > 1.8 && products.length < 8){
+      spawnTimer = 0;
+      spawnProduct();
+    }
+    updateProducts(dt, elapsed);
+  }
+
+  // 스테이션 애니메이션
+  st1.update(elapsed);
+  st2.update(elapsed);
+  st3.update(elapsed);
+  st4.update(elapsed);
+  st5.update(elapsed);
+  st6.update(elapsed, dt);
+  const nearVision = products.some(p=> Math.abs(p.mesh.position.x - STATIONS[6].x) < 0.6);
+  st7.update(elapsed, dt, nearVision);
+  const diverting = products.some(p=> p.state==='diverting');
+  st8.update(elapsed, diverting);
+  st9.update(elapsed);
+
+  plcCabinet.leds.forEach((led,i)=>{
+    led.material.emissiveIntensity = 0.6 + Math.sin(elapsed*3 + i*1.7)*0.4;
+  });
+
+  controls.update();
+  updateLabels();
+  if(camTween){
+    camTween.t += dt/camTween.dur;
+    const k = Math.min(1, camTween.t);
+    const ek = 1 - Math.pow(1-k, 3);
+    camera.position.lerpVectors(camTween.from.pos, camTween.to.pos, ek);
+    controls.target.lerpVectors(camTween.from.target, camTween.to.target, ek);
+    if(k>=1) camTween = null;
+  }
+
+  renderer.render(scene, camera);
+}
+
+/* ---------------------------------------------------------------
+   초기 스폰 및 로딩 완료
+--------------------------------------------------------------- */
+for(let i=0;i<3;i++){
+  spawnProduct();
+  products[i].mesh.position.x = SPAWN_X + i*8;
+}
+
+animate();
+
+setTimeout(()=>{
+  const loading = document.getElementById('loading');
+  loading.style.opacity = '0';
+  setTimeout(()=> loading.remove(), 550);
+}, 500);
+</script>
+</body>
+</html>
