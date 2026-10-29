@@ -1,0 +1,214 @@
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>전기제어 실습실 디지털 트윈</title>
+<style>
+:root{--bg:#0e1a24;--fg:#eaf3fa;--pn:rgba(10,20,30,.78);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1a24;--fg:#eaf3fa}}
+:root[data-theme="dark"]{--bg:#0e1a24;--fg:#eaf3fa}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);overflow:hidden;font-family:system-ui,'Apple SD Gothic Neo','Noto Sans KR',sans-serif}
+canvas{display:block;touch-action:none;width:100%;height:100%}
+.p{position:absolute;background:var(--pn);border-radius:10px;padding:8px 12px;font-size:13px;line-height:1.5}
+#top{top:calc(8px + env(safe-area-inset-top,0px));left:8px;max-width:min(430px,70vw)}
+#top b{font-size:15px}#hint{opacity:.75;font-size:12px}
+#opt{margin-top:6px}#opt label{display:block;cursor:pointer}
+#warn{position:absolute;top:30%;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:10px;font-weight:700;font-size:16px;display:none;text-align:center;max-width:80vw}
+#note{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:var(--pn);padding:6px 12px;border-radius:8px;font-size:13px;display:none}
+#act{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);display:flex;gap:10px}
+#act button{border:0;color:#fff;font-weight:700;font-size:16px;padding:14px 20px;border-radius:12px;min-width:84px;touch-action:none;user-select:none}
+#pad{position:absolute;left:10px;bottom:calc(14px + env(safe-area-inset-bottom,0px));display:none;grid-template-columns:repeat(3,48px);gap:4px}
+#pad button{height:48px;border:0;border-radius:10px;background:var(--pn);color:var(--fg);font-size:20px;touch-action:none}
+@media (pointer:coarse){#pad{display:grid}#act{bottom:calc(80px + env(safe-area-inset-bottom,0px));left:auto;right:10px;transform:none;flex-direction:column}#note{bottom:auto;top:90px}}
+#tools{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));right:8px;display:flex;gap:6px}
+#tools button{border:0;border-radius:8px;padding:8px 10px;background:var(--pn);color:var(--fg);font-size:13px}
+#fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .35s}
+</style></head><body>
+<canvas id="cv"></canvas>
+<div id="top" class="p"><b id="rt"></b><div id="st"></div><div id="opt"><label><input type="checkbox" id="eIL"> 오류: 인터록 배선 누락</label><label><input type="checkbox" id="eSW"> 오류: 주회로 상 교체 누락</label></div><div id="hint">WASD/방향키 이동 · 드래그로 시점 · 버튼 클릭/터치 · 문 앞으로 이동 · F/R/X 키</div></div>
+<div id="tools"><button id="sens">📱 시점 센서</button></div>
+<div id="warn"></div><div id="note"></div><div id="act"></div>
+<div id="pad"><i></i><button data-k="f">▲</button><i></i><button data-k="l">◀</button><button data-k="b">▼</button><button data-k="r">▶</button></div>
+<div id="fade"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const T=THREE,$=id=>document.getElementById(id);
+const scene=new T.Scene();scene.background=new T.Color(0xcfd8e0);
+const cv=$('cv'),renderer=new T.WebGLRenderer({canvas:cv,antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const cam=new T.PerspectiveCamera(70,1,.05,100);cam.rotation.order='YXZ';
+scene.add(new T.HemisphereLight(0xffffff,0x9aa7b3,1.0));
+const lights=[0,1,2,3].map(()=>{const l=new T.PointLight(0xf4fbff,.6,14,1.5);scene.add(l);return l});
+const M=(c,o)=>new T.MeshStandardMaterial(Object.assign({color:c,roughness:.55,metalness:.15},o||{}));
+const V=(x,y,z)=>new T.Vector3(x,y,z);
+function B(p,w,h,d,m,x,y,z){const o=new T.Mesh(new T.BoxGeometry(w,h,d),m);o.position.set(x||0,y||0,z||0);p.add(o);return o}
+function C(p,r,l,m,x,y,z,ax){const o=new T.Mesh(new T.CylinderGeometry(r,r,l,20),m);o.position.set(x||0,y||0,z||0);if(ax=='z')o.rotation.x=Math.PI/2;p.add(o);return o}
+function L(p,txt,w,h,x,y,z,fg,bg){const c=document.createElement('canvas');c.width=512;c.height=Math.max(32,Math.round(512*h/w));const g=c.getContext('2d');if(bg){g.fillStyle=bg;g.fillRect(0,0,512,c.height)}g.fillStyle=fg||'#111';g.font='bold '+Math.min(c.height*.62,500/txt.length*1.5)+'px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(txt,256,c.height/2);const m=new T.Mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({map:new T.CanvasTexture(c),transparent:!bg}));m.position.set(x,y,z);p.add(m);return m}
+function CP(p,w,h,x,y,z,pw,ph,fn){const c=document.createElement('canvas');c.width=pw;c.height=ph;const g=c.getContext('2d'),t=new T.CanvasTexture(c),m=new T.Mesh(new T.PlaneGeometry(w,h),new T.MeshBasicMaterial({map:t}));m.position.set(x,y,z);p.add(m);return{key:'',draw(k){if(k===this.key)return;this.key=k;fn(g,pw,ph);t.needsUpdate=true}}}
+function wire(p,pts,m,r){for(let i=0;i<pts.length-1;i++){const a=V(...pts[i]),b=V(...pts[i+1]),d=b.clone().sub(a),l=d.length();if(l<1e-4)continue;const o=new T.Mesh(new T.CylinderGeometry(r||.02,r||.02,l,6),m);o.position.copy(a).add(b).multiplyScalar(.5);o.quaternion.setFromUnitVectors(V(0,1,0),d.normalize());p.add(o)}}
+// ---------- state ----------
+const S={fwd:0,rev:0,stop:0,start:0,stop2:0,mcF:0,mcR:0,noIL:0,swap:0,trip:0,shortT:0,w:0,on2:0,w2:0};
+const R1={seq:0,th:0,rot:0};
+const btns=[],lamps=[],ROOMS=[{ox:0,n:'전기제어 실습실 · 3상 유도전동기 정·역회전 제어'},{ox:-40,n:'3상 유도전동기 실습 공간'},{ox:40,n:'자기유지 기동 정지 회로 실습 공간'}];
+// ---------- room shell ----------
+function room(ox){const g=new T.Group();g.position.x=ox;scene.add(g);
+ const fc=document.createElement('canvas');fc.width=fc.height=128;const x=fc.getContext('2d');x.fillStyle='#c4cacf';x.fillRect(0,0,128,128);x.strokeStyle='#8e969c';x.lineWidth=3;x.strokeRect(0,0,128,128);
+ const ft=new T.CanvasTexture(fc);ft.wrapS=ft.wrapT=T.RepeatWrapping;ft.repeat.set(7,6);
+ const fl=new T.Mesh(new T.PlaneGeometry(14,12),M(0xffffff,{map:ft,roughness:.3}));fl.rotation.x=-Math.PI/2;fl.position.z=1;g.add(fl);
+ const ce=new T.Mesh(new T.PlaneGeometry(14,12),M(0xf4f6f8));ce.rotation.x=Math.PI/2;ce.position.set(0,4,1);g.add(ce);
+ const wm=M(0xe6edf2,{roughness:.9});B(g,14,4,.2,wm,0,2,-5.1);B(g,14,4,.2,wm,0,2,7.1);B(g,.2,4,12.2,wm,-7.1,2,1);B(g,.2,4,12.2,wm,7.1,2,1);
+ B(g,14,.35,.05,M(0x2f5d8a),0,.18,-4.99);
+ const lm=M(0xffffff,{emissive:0xffffff,emissiveIntensity:1.2});
+ [-3.5,3.5].forEach(a=>[-1,4].forEach(z=>{B(g,.5,.05,2.7,M(0xb0b6bb),a,3.97,z);B(g,.34,.04,2.5,lm,a,3.93,z)}));
+ return g}
+function door(g,s,txt){const k=M(0x333b42);B(g,.12,2.5,1.5,M(0x6b7a88),s*6.9,1.25,1);B(g,.16,.12,1.8,k,s*6.9,2.55,1);B(g,.16,2.6,.1,k,s*6.9,1.3,.15);B(g,.16,2.6,.1,k,s*6.9,1.3,1.85);B(g,.08,.08,.3,M(0xdddddd),s*6.78,1.1,1.5);
+ L(g,txt,3.4,.4,s*6.78,3.1,1,'#fff','#1d4ed8').rotation.y=-s*Math.PI/2}
+function table(g,cx,w){const m=M(0x4b5560);B(g,w,.08,1.5,M(0xd8c9a8,{roughness:.7}),cx,.9,-3.55);[[-1,-1],[1,-1],[-1,1],[1,1]].forEach(a=>B(g,.08,.86,.08,m,cx+a[0]*(w/2-.1),.43,-3.55+a[1]*.65))}
+function pb(g,x,y,z,col,id,lab){const m=C(g,.13,.12,M(col,{roughness:.3}),x,y,z);m.userData={id,y};btns.push(m);C(g,.18,.04,M(0x222),x,y-.06,z);L(g,lab,.46,.11,x,1.03,z+.3,'#fff','#222')}
+function lamp(g,x,y,z,col,f){const m=new T.Mesh(new T.SphereGeometry(.06,12,8),M(0x222222,{emissive:col,emissiveIntensity:0}));m.position.set(x,y,z);g.add(m);lamps.push({m,f})}
+const brass=M(0xc9a227,{metalness:.8});
+function mc(P,x,y,name,aux){const g=new T.Group();g.position.set(x,y,.06);P.add(g);B(g,.9,.8,.18,M(0x2e353d));B(g,.7,.22,.02,M(0xeeeeee),0,.12,.1);L(g,name,.66,.18,0,.12,.115,'#111');
+ const arm=B(g,.5,.2,.04,M(0x1f6feb),0,-.18,.1);const led=new T.Mesh(new T.SphereGeometry(.05,12,8),M(0x113311,{emissive:0x00ff55,emissiveIntensity:0}));led.position.set(.3,.33,.1);g.add(led);
+ [-.25,0,.25].forEach(d=>{C(g,.045,.07,brass,d,.43,.1,'z');C(g,.045,.07,brass,d,-.43,.1,'z')});
+ if(aux){B(g,.2,.3,.1,M(0xff9800),aux*.55,0,.1);L(g,'b',.12,.12,aux*.55,0,.16,'#000')}
+ return{arm,led}}
+const updMC=(m,on)=>{m.arm.position.y=on?-.22:-.18;m.led.material.emissiveIntensity=on?1.5:0};
+function motor(g,x,z,s){const m=new T.Group();m.position.set(x,0,z);m.scale.setScalar(s);g.add(m);const bl=M(0x1d4e89,{metalness:.5,roughness:.4}),dk=M(0x222831);
+ B(m,1.3,.08,.9,M(0x555b61),0,.04,0);C(m,.4,1.1,bl,0,.55,0,'z');for(let i=0;i<6;i++)C(m,.44,.05,bl,0,.55,-.45+i*.18,'z');C(m,.36,.25,dk,0,.55,.67,'z');
+ B(m,.45,.2,.35,dk,0,1.05,0);L(m,'U V W',.4,.12,0,1.05,.18,'#fff');
+ const rot=new T.Group();rot.position.set(0,.55,0);m.add(rot);C(rot,.06,.5,M(0xcccccc),0,0,1,'z');C(rot,.22,.04,M(0xffffff),0,0,1.28,'z');B(rot,.05,.2,.02,M(0xe53935),0,.11,1.31);B(rot,.05,.1,.02,M(0x1e88e5),0,-.07,1.31);
+ return{g:m,rot}}
+// ---------- MAIN ROOM ----------
+const g0=room(0);door(g0,-1,'◀ 3상 유도전동기 실습 공간');door(g0,1,'자기유지 기동 정지 회로 실습 공간 ▶');
+L(g0,'3상 유도전동기 정·역회전 제어 실습실',4.6,.45,4.6,3.3,-4.97,'#fff','#37474f');
+table(g0,0,4.6);
+const P=new T.Group();P.position.set(0,1.0,-4.35);g0.add(P);B(P,4.6,2.6,.08,M(0xdfe3e6,{metalness:.3}),0,1.3,0);
+L(P,'3상 유도전동기 정·역회전 주회로  (R·S·T → MC → U·V·W)',3.9,.18,0,2.5,.05,'#fff','#37474f');
+B(P,.6,.5,.12,M(0x222a31),0,2.05,.06);L(P,'MCCB',.4,.12,0,2.2,.13,'#fff');
+const PC=[0xe53935,0xf5c518,0x1e88e5],PN=['R','S','T'];
+const mk=()=>PC.map(c=>M(c,{emissive:c,emissiveIntensity:.15})),mTop=mk(),mF=mk(),mR=mk();
+for(let i=0;i<3;i++){const bx=-.2+.2*i;C(P,.04,.07,brass,bx,1.78,.1,'z');L(P,PN[i],.14,.12,bx,1.9,.13,'#fff')}
+const mcF=mc(P,-1.2,1.05,'MC-F 정회전',1),mcR=mc(P,1.2,1.05,'MC-R 역회전',-1);
+for(let i=0;i<3;i++){const bx=-.2+.2*i,z=.19+.02*i,ly=1.68-.07*i;[-1.2,1.2].forEach(cx=>wire(P,[[bx,1.78,z],[bx,ly,z],[cx-.25+.25*i,ly,z],[cx-.25+.25*i,1.48,z]],mTop[i]))}
+function lower(grp,cx,map,mats,rev){for(let i=0;i<3;i++){const sx=cx-.25+.25*i,tx=-.3+.3*map[i],ly=.36+.07*(rev?2-i:i),z=.19+.02*i;wire(grp,[[sx,.62,z],[sx,ly,z],[tx,ly,z],[tx,.24,z]],mats[i])}}
+const gF=new T.Group(),gR=new T.Group();P.add(gF,gR);lower(gF,-1.2,[0,1,2],mF,false);
+function buildR(){while(gR.children.length)gR.remove(gR.children[0]);lower(gR,1.2,S.swap?[0,1,2]:[2,1,0],mR,true)}buildR();
+B(P,1,.2,.1,M(0xbdc3c8),0,.16,.08);['U','V','W'].forEach((n,i)=>{C(P,.04,.07,brass,-.3+.3*i,.16,.14,'z');L(P,n,.14,.12,-.3+.3*i,.03,.13,'#222')});
+L(P,'MC-R 하단: R↔T 상 교체 → 역회전',1.9,.12,1.1,.1,.06,'#b71c1c');
+const ilG=new T.Group();P.add(ilG);const mO=M(0xff9800,{emissive:0xff6d00,emissiveIntensity:.3});wire(ilG,[[-.64,1.15,.22],[.64,1.15,.22]],mO);wire(ilG,[[-.64,.95,.22],[.64,.95,.22]],mO);L(ilG,'b접점 인터록 배선',.9,.11,0,1.32,.2,'#e65100');
+const ilX=L(P,'✕ 인터록 배선 누락',.9,.14,0,1.1,.2,'#fff','#c62828');
+const cable=M(0x1c1f23,{emissive:0x2196f3,emissiveIntensity:0});wire(g0,[[0,1.1,-4.22],[0,.1,-4.22],[4.2,.1,-4.22],[4.2,1.2,-4.22],[4.6,1.2,-3.4]],cable,.04);
+const mot=motor(g0,4.6,-3.4,1.1);L(g0,'3상 유도전동기 (축 방향에서 본 회전)',2.2,.2,4.6,2.0,-3.4,'#fff','#37474f');
+const bb=B(g0,1.8,.18,.55,M(0xb8bec4),0,1.03,-3.1);
+pb(g0,-.6,1.18,-3.12,0x16a34a,'fwd','정회전');pb(g0,0,1.18,-3.12,0xeab308,'rev','역회전');pb(g0,.6,1.18,-3.12,0xdc2626,'stop','정지');
+lamp(g0,-.6,1.17,-3.38,0x00ff55,()=>S.mcF);lamp(g0,0,1.17,-3.38,0xffcc00,()=>S.mcR);lamp(g0,.6,1.17,-3.38,0xff2020,()=>S.trip||(S.mcF&&S.mcR&&!S.swap));
+// short-circuit effects
+const spN=80,spP=new Float32Array(spN*3).fill(-99),spV=new Float32Array(spN*3);
+const sp=new T.Points(new T.BufferGeometry().setAttribute('position',new T.BufferAttribute(spP,3)),new T.PointsMaterial({color:0xffc233,size:.07}));sp.frustumCulled=false;P.add(sp);
+const fl=new T.PointLight(0xff3030,0,5);fl.position.set(.5,.5,.9);P.add(fl);
+function sparks(dt,on){for(let i=0;i<spN;i++){const j=i*3;if(!on){spP[j+1]=-99;continue}
+ if(spP[j+1]<-50||spP[j+1]<.05&&Math.random()<.5){spP[j]=-.3+Math.random()*1.8;spP[j+1]=.4;spP[j+2]=.25;spV[j]=(Math.random()-.5)*2;spV[j+1]=Math.random()*2.5;spV[j+2]=Math.random()}
+ else{spP[j]+=spV[j]*dt;spP[j+1]+=spV[j+1]*dt;spP[j+2]+=spV[j+2]*dt;spV[j+1]-=6*dt}}sp.geometry.attributes.position.needsUpdate=true}
+// ladder drawing
+function rung(g,W,y,c){const on='#5cff7a',off='#4d5f6b';
+ const ln=(a,b,d,e,f)=>{g.strokeStyle=f?on:off;g.lineWidth=6;g.beginPath();g.moveTo(a,b);g.lineTo(d,e);g.stroke()};
+ const bx=(x,yy,t,f,bad)=>{g.fillStyle='#14303f';g.fillRect(x-62,yy-28,124,56);g.setLineDash(bad?[8,6]:[]);g.strokeStyle=bad?'#ff4d4d':(f?on:'#8fa3b0');g.lineWidth=4;g.strokeRect(x-62,yy-28,124,56);g.setLineDash([]);g.fillStyle=bad?'#ff8080':'#fff';g.font='bold 20px sans-serif';g.textAlign='center';g.fillText(t,x,yy+7)};
+ const a1=c.live&&!c.stop,a2=a1&&(c.pr||c.self),a3=a2&&(!c.il||c.noIL||!c.oth);
+ ln(60,y,130,y,c.live);bx(190,y,'STOP b',a1);ln(252,y,310,y,a1);ln(310,y,310,y+80,a1);bx(370,y,c.pl,a1&&c.pr);bx(370,y+80,c.sl,a1&&c.self);
+ ln(432,y+80,470,y+80,a1&&c.self);ln(470,y+80,470,y,a1&&c.self);ln(432,y,775,y,a2);
+ if(c.il){bx(620,y,c.il,a3,c.noIL?1:0);ln(682,y,775,y,a3)}
+ g.beginPath();g.arc(830,y,38,0,7);g.fillStyle=a3?'#22c55e':'#14303f';g.fill();g.strokeStyle=a3?on:'#8fa3b0';g.lineWidth=4;g.stroke();g.fillStyle='#fff';g.font='bold 19px sans-serif';g.textAlign='center';g.fillText(c.cl,830,y+7);ln(868,y,964,y,a3)}
+function rails(g,W,H,t){g.fillStyle='#0e1d28';g.fillRect(0,0,W,H);g.fillStyle='#fff';g.font='bold 28px sans-serif';g.textAlign='left';g.fillText(t,24,40);g.strokeStyle='#cfd8dc';g.lineWidth=8;g.beginPath();g.moveTo(60,80);g.lineTo(60,H-60);g.moveTo(W-60,80);g.lineTo(W-60,H-60);g.stroke();g.font='20px sans-serif';g.fillStyle='#cfd8dc';g.textAlign='center';g.fillText('L1',60,72);g.fillText('N',W-60,72)}
+const lad0=CP(g0,3.2,1.75,-4.8,2.3,-4.96,1024,560,(g,W,H)=>{rails(g,W,H,'제어회로 (b접점 전기적 인터록)');const live=!S.trip;
+ rung(g,W,170,{live,stop:S.stop,pr:S.fwd,self:S.mcF,oth:S.mcR,noIL:S.noIL,pl:'정회전 PB a',sl:'MC-F a',il:'MC-R b',cl:'MC-F'});
+ rung(g,W,380,{live,stop:S.stop,pr:S.rev,self:S.mcR,oth:S.mcF,noIL:S.noIL,pl:'역회전 PB a',sl:'MC-R a',il:'MC-F b',cl:'MC-R'});
+ g.font='bold 22px sans-serif';g.textAlign='center';g.fillStyle=S.noIL?'#ff6b6b':'#9be7b0';g.fillText(S.noIL?'⚠ 인터록 b접점 누락 — 두 MC가 동시에 투입될 수 있음':'상대 MC의 b접점이 직렬 → 동시 투입 방지',W/2,H-24)});
+// ---------- LEFT ROOM: induction motor ----------
+const g1=room(-40);door(g1,1,'전기제어 실습실(메인) ▶');
+B(g1,1.8,1,1.2,M(0x4b5560),0,.5,-3);const cut=new T.Group();cut.position.set(0,2.25,-3);g1.add(cut);
+const st=new T.Mesh(new T.CylinderGeometry(1.25,1.25,1.5,32,1,true),new T.MeshStandardMaterial({color:0x90a4ae,transparent:true,opacity:.18,side:T.DoubleSide}));st.rotation.x=Math.PI/2;cut.add(st);
+const coils=[[0,0,1],[60,2,-1],[120,1,1],[180,0,-1],[240,2,1],[300,1,-1]].map(a=>{const m=M(PC[a[1]],{emissive:PC[a[1]],emissiveIntensity:0}),o=B(cut,.3,.3,1.4,m,Math.cos(a[0]*Math.PI/180)*1.0,Math.sin(a[0]*Math.PI/180)*1.0,0);o.rotation.z=a[0]*Math.PI/180;return{m,p:a[1],s:a[2]}});
+const rotor=new T.Group();cut.add(rotor);C(rotor,.65,1.4,M(0x78909c,{metalness:.6}),0,0,0,'z');B(rotor,.16,1.2,1.42,M(0xffffff),0,.3,0);B(rotor,.16,.5,1.42,M(0xe53935),0,.3,0).position.set(0,.55,0);
+const fieldBar=new T.Group();cut.add(fieldBar);B(fieldBar,.1,1.9,.1,M(0xff5252,{emissive:0xff1744,emissiveIntensity:.8}),0,0,0.82);B(fieldBar,.25,.25,.1,M(0xff1744),0,.95,.82);
+L(g1,'회전자계 방향 = 상순  ·  S↔T 두 상을 바꾸면 역회전',5.2,.5,0,3.55,-4.97,'#fff','#37474f');
+L(g1,'3상 전류가 만드는 회전자계(붉은 막대)를 회전자가 따라갑니다',4.4,.35,-4.2,2.0,-4.97,'#fff','#455a64');
+const sine=CP(g1,3.6,1.8,4.2,2.4,-4.96,512,256,(g,W,H)=>{g.fillStyle='#0e1d28';g.fillRect(0,0,W,H);g.strokeStyle='#445';g.beginPath();g.moveTo(0,H/2);g.lineTo(W,H/2);g.stroke();
+ for(let p=0;p<3;p++){g.strokeStyle='#'+PC[p].toString(16).padStart(6,'0');g.lineWidth=3;g.beginPath();for(let x=0;x<=W;x++){const a=x/W*Math.PI*4,y=H/2-Math.cos(a-p*2.094)*H*.38;x?g.lineTo(x,y):g.moveTo(x,y)}g.stroke()}
+ const mx=((R1.th*(R1.seq?-1:1))%(Math.PI*4)+Math.PI*4)%(Math.PI*4)/(Math.PI*4)*W;g.strokeStyle='#fff';g.beginPath();g.moveTo(mx,0);g.lineTo(mx,H);g.stroke();g.fillStyle='#fff';g.font='bold 22px sans-serif';g.fillText(R1.seq?'상순 R-T-S (역회전)':'상순 R-S-T (정회전)',12,26)});
+// ---------- RIGHT ROOM: self-holding ----------
+const g2=room(40);door(g2,-1,'◀ 전기제어 실습실(메인)');table(g2,-1.5,2.8);
+const P2=new T.Group();P2.position.set(-1.5,1.0,-4.35);g2.add(P2);B(P2,2.4,1.8,.08,M(0xdfe3e6,{metalness:.3}),0,.9,0);L(P2,'자기유지 기동·정지 회로',2.0,.16,0,1.68,.05,'#fff','#37474f');
+const mc2=mc(P2,0,.95,'MC (전자접촉기)',0);
+B(g2,1.6,.18,.55,M(0xb8bec4),-1.5,1.03,-3.1);pb(g2,-1.9,1.18,-3.12,0x16a34a,'start','START');pb(g2,-1.1,1.18,-3.12,0xdc2626,'stop2','STOP');lamp(g2,-1.5,1.17,-3.38,0x00ff55,()=>S.on2);
+const mot2=motor(g2,5,-3.4,1);
+L(g2,'MC 코일 여자 → a접점(자기유지)이 START와 병렬로 유지',4.6,.4,-.2,3.4,-4.97,'#fff','#37474f');
+const lad2=CP(g2,3.4,1.5,2.6,2.2,-4.96,1024,440,(g,W,H)=>{rails(g,W,H,'자기유지 회로');rung(g,W,170,{live:1,stop:S.stop2,pr:S.start,self:S.on2,pl:'START PB a',sl:'MC a (자기유지)',cl:'MC'});g.font='bold 22px sans-serif';g.textAlign='center';g.fillStyle='#9be7b0';g.fillText(S.on2?'자기유지 중 — START를 놓아도 유지':'START를 누르면 MC 여자 → a접점으로 유지',W/2,H-30)});
+// ---------- game state ----------
+const DEFS=[[{l:'정회전',id:'fwd',c:'#16a34a'},{l:'역회전',id:'rev',c:'#ca8a04'},{l:'정지',id:'stop',c:'#dc2626'}],[{l:'정상 상순',k:()=>R1.seq=0,c:'#2563eb'},{l:'S↔T 상 교체',k:()=>R1.seq=1,c:'#c2410c'}],[{l:'START',id:'start',c:'#16a34a'},{l:'STOP',id:'stop2',c:'#dc2626'}]];
+const DOORS=[{room:0,side:-1,to:1},{room:0,side:1,to:2},{room:1,side:1,to:0},{room:2,side:-1,to:0}];
+const COLS=[[[-2.6,2.6,-4.6,-2.6],[3.9,5.4,-4.3,-2.4]],[[-1,1,-4,-2.4]],[[-2.9,-.1,-4.6,-2.6],[4.4,5.6,-4.3,-2.4]]];
+let cur=0,pos=V(0,1.6,4.5),yaw=0,pitch=0,lock=0,sensor=false,dev=null;
+function hud(i){const a=$('act');a.innerHTML='';$('opt').style.display=i==0?'block':'none';$('rt').textContent=ROOMS[i].n;
+ DEFS[i].forEach(d=>{const b=document.createElement('button');b.textContent=d.l;b.style.background=d.c;if(d.k)b.onclick=d.k;else{b.onpointerdown=e=>{e.preventDefault();AC();S[d.id]=1};const u=()=>S[d.id]=0;b.onpointerup=u;b.onpointerleave=u;b.onpointercancel=u}a.appendChild(b)})}
+function place(i){cur=i;const ox=ROOMS[i].ox;lights.forEach((l,k)=>l.position.set(ox+[-3.5,3.5,-3.5,3.5][k],3.4,[-1,-1,4,4][k]));hud(i)}
+function go(d){lock=performance.now()+1500;$('fade').style.opacity=1;setTimeout(()=>{const back=DOORS.find(x=>x.room==d.to&&x.to==d.room),ox=ROOMS[d.to].ox;place(d.to);pos.set(ox+back.side*5.2,1.6,1);yaw=back.side>0?Math.PI/2:-Math.PI/2;pitch=0;$('fade').style.opacity=0},380)}
+place(0);
+// audio
+let ac;function AC(){if(!ac)try{ac=new(window.AudioContext||window.webkitAudioContext)()}catch(e){}if(ac&&ac.state=='suspended')ac.resume()}
+function beep(f,d,v){if(!ac)return;const o=ac.createOscillator(),g=ac.createGain();o.frequency.value=f;o.type='square';g.gain.value=v||.04;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}
+// input
+const k={};const KM={f:'fwd',r:'rev',x:'stop'};
+addEventListener('keydown',e=>{const c=e.key.toLowerCase();k[c]=1;if(KM[c]&&cur==0){AC();S[KM[c]]=1}});
+addEventListener('keyup',e=>{const c=e.key.toLowerCase();k[c]=0;if(KM[c])S[KM[c]]=0});
+document.querySelectorAll('#pad button').forEach(b=>{const n=b.dataset.k,u=()=>k['pad'+n]=0;b.onpointerdown=e=>{e.preventDefault();k['pad'+n]=1};b.onpointerup=u;b.onpointerleave=u;b.onpointercancel=u});
+const ray=new T.Raycaster(),pt=new T.Vector2();ray.far=8;
+function pick(e){const r=cv.getBoundingClientRect();pt.set((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height)*2+1);ray.setFromCamera(pt,cam);const h=ray.intersectObjects(btns,false)[0];return h&&h.object.userData.id}
+let drag=null,held=null;
+cv.addEventListener('pointerdown',e=>{AC();cv.setPointerCapture(e.pointerId);const id=pick(e);if(id){held=id;S[id]=1;return}drag={x:e.clientX,y:e.clientY}});
+cv.addEventListener('pointermove',e=>{if(!drag)return;if(!sensor){yaw-=(e.clientX-drag.x)*.005;pitch=Math.max(-1.2,Math.min(1.2,pitch-(e.clientY-drag.y)*.005))}drag.x=e.clientX;drag.y=e.clientY});
+const up=()=>{if(held){S[held]=0;held=null}drag=null};cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+$('eIL').onchange=e=>S.noIL=e.target.checked?1:0;$('eSW').onchange=e=>{S.swap=e.target.checked?1:0;buildR()};
+const z3=V(0,0,1),eu=new T.Euler(),q0=new T.Quaternion(),q1=new T.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5));
+$('sens').onclick=async()=>{try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission&&await DeviceOrientationEvent.requestPermission()!=='granted')return;if(!dev){dev={};addEventListener('deviceorientation',e=>{if(e.alpha!=null){dev.a=e.alpha;dev.b=e.beta;dev.g=e.gamma;dev.ok=1}})}sensor=!sensor;$('sens').textContent=sensor?'📱 센서 ON':'📱 시점 센서';if(!sensor){cam.rotation.set(pitch,yaw,0)}}catch(e){}};
+function resize(){renderer.setSize(innerWidth,innerHeight,false);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',resize);resize();
+// ---------- update ----------
+let prevF=0,prevR=0,alarmT=0,uiT=0,t0=0;
+function logic(dt){
+ if(S.stop){S.trip=0;S.shortT=0}
+ if(S.stop||S.trip){S.mcF=S.mcR=0}else{S.mcF=(S.fwd||S.mcF)&&(S.noIL||!S.mcR)?1:0;S.mcR=(S.rev||S.mcR)&&(S.noIL||!S.mcF)?1:0}
+ if(S.mcF&&S.mcR&&!S.swap){S.shortT+=dt;if(S.shortT>2.4){S.trip=1;S.mcF=S.mcR=0;beep(200,.5,.08)}}else S.shortT=0;
+ if(S.mcF!=prevF||S.mcR!=prevR){beep(130,.05,.08);prevF=S.mcF;prevR=S.mcR}
+ S.on2=!S.stop2&&(S.start||S.on2)?1:0;
+}
+function anim(dt,t){
+ const sh=S.mcF&&S.mcR&&!S.swap,both=S.mcF&&S.mcR;
+ const dir=both?(S.swap?1:0):S.mcF?1:S.mcR?(S.swap?1:-1):0;
+ S.w+=(dir*7-S.w)*Math.min(1,dt*2.5);mot.rot.rotation.z-=S.w*dt;
+ mot.g.position.x=4.6+(sh?(Math.random()-.5)*.04:0);
+ S.w2+=((S.on2?7:0)-S.w2)*Math.min(1,dt*2.5);mot2.rot.rotation.z-=S.w2*dt;
+ const fk=sh?1.2+Math.sin(t*40)*.9:0;
+ mTop.forEach(m=>m.emissiveIntensity=S.trip?.05:.6);mF.forEach(m=>m.emissiveIntensity=S.mcF?(sh?fk:1):.1);mR.forEach(m=>m.emissiveIntensity=S.mcR?(sh?fk:1):.1);
+ cable.emissiveIntensity=dir?.9:0;fl.intensity=sh?2+Math.sin(t*40)*1.8:0;sparks(dt,sh);
+ updMC(mcF,S.mcF);updMC(mcR,S.mcR);updMC(mc2,S.on2);ilG.visible=!S.noIL;ilX.visible=!!S.noIL;
+ if(sh){alarmT-=dt;if(alarmT<0){alarmT=.35;beep(900,.15)}}
+ btns.forEach(b=>b.position.y=b.userData.y-(S[b.userData.id]?.05:0));lamps.forEach(l=>l.m.material.emissiveIntensity=l.f()?1.3:.05);
+ R1.th+=dt*3*(R1.seq?-1:1);R1.rot+=(R1.th-R1.rot)*Math.min(1,dt*2);rotor.rotation.z=R1.rot;fieldBar.rotation.z=R1.th-Math.PI/2;
+ const wt=R1.th*(R1.seq?-1:1);coils.forEach(c=>{const p=R1.seq&&c.p?3-c.p:c.p;c.m.emissiveIntensity=Math.max(0,c.s*Math.cos(wt-p*2.094))*1.2});
+ if(cur==0)lad0.draw([S.fwd,S.rev,S.stop,S.mcF,S.mcR,S.noIL,S.trip].join());
+ if(cur==1)sine.draw(Math.round(R1.th*6)+':'+R1.seq);
+ if(cur==2)lad2.draw([S.start,S.stop2,S.on2].join());
+ uiT-=dt;if(uiT<0){uiT=.1;const w=$('warn'),n=$('note');let m='',nt='';
+  if(cur==0){if(S.trip)m='🔌 차단기 트립 — 정지 버튼으로 복구';else if(sh)m='⚠ 상간 단락 위험! MC-F·MC-R 동시 투입 (R–T 단락)';else if(both)m='⚠ 두 MC 동시 투입 (인터록 없음)';
+   if(S.swap&&S.mcR&&!S.mcF)nt='ℹ 상 교체 누락: 역회전을 눌러도 정회전 방향으로 회전';
+   $('st').textContent='MC-F '+(S.mcF?'ON':'OFF')+' · MC-R '+(S.mcR?'ON':'OFF')+' · 모터: '+(dir>0?(S.mcR&&S.swap?'정회전 ↻ (의도: 역회전)':'정회전 ↻'):dir<0?'역회전 ↺':'정지')}
+  else if(cur==1)$('st').textContent=R1.seq?'상순 R-T-S → 회전자계 역방향 → 역회전':'상순 R-S-T → 회전자계 정방향 → 정회전';
+  else $('st').textContent='MC '+(S.on2?'ON (자기유지)':'OFF')+' · 모터 '+(S.on2?'운전':'정지');
+  w.style.display=m?'block':'none';w.textContent=m;w.style.background=S.trip?'#7f1d1d':'#dc2626';w.style.color='#fff';n.style.display=nt?'block':'none';n.textContent=nt}
+}
+const dv=V(),rv=V();
+function move(dt){let f=0,s=0,tn=0;if(k.w||k.arrowup||k.padf)f++;if(k.s||k.arrowdown||k.padb)f--;if(k.d||k.padr)s++;if(k.a||k.padl)s--;if(k.arrowleft)tn++;if(k.arrowright)tn--;
+ yaw+=tn*dt*1.8;cam.getWorldDirection(dv);dv.y=0;dv.normalize();rv.set(-dv.z,0,dv.x);const sp=(k.shift?4:2.2)*dt;pos.x+=(dv.x*f+rv.x*s)*sp;pos.z+=(dv.z*f+rv.z*s)*sp;
+ const ox=ROOMS[cur].ox;pos.x=Math.max(ox-6.4,Math.min(ox+6.4,pos.x));pos.z=Math.max(-4.5,Math.min(6.5,pos.z));
+ const lx=pos.x-ox;for(const[c0,c1,d0,d1]of COLS[cur]){const m=.35;if(lx>c0-m&&lx<c1+m&&pos.z>d0-m&&pos.z<d1+m){const d=[lx-(c0-m),c1+m-lx,pos.z-(d0-m),d1+m-pos.z],i=d.indexOf(Math.min(...d));if(i==0)pos.x-=d[0];else if(i==1)pos.x+=d[1];else if(i==2)pos.z-=d[2];else pos.z+=d[3]}}
+ if(performance.now()>lock)for(const d of DOORS)if(d.room==cur&&(pos.x-ox)*d.side>6&&Math.abs(pos.z-1)<.9){go(d);break}
+ cam.position.copy(pos);
+ if(sensor&&dev&&dev.ok){const r=Math.PI/180;eu.set(dev.b*r,dev.a*r,-dev.g*r,'YXZ');cam.quaternion.setFromEuler(eu);cam.quaternion.multiply(q1);cam.quaternion.multiply(q0.setFromAxisAngle(z3,-((screen.orientation&&screen.orientation.angle)||0)*r))}else cam.rotation.set(pitch,yaw,0)}
+let last=performance.now();
+function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;move(dt);logic(dt);anim(dt,t/1000);renderer.render(scene,cam);requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script></body></html>
