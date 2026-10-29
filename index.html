@@ -81,6 +81,11 @@
   .btn.active{ border-color:var(--accent); color:var(--accent); }
   .btn:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
 
+  /* Nav link buttons */
+  #navLinks{ display:flex; gap:8px; pointer-events:auto; margin-right:auto; margin-left:8px; }
+  a.btn.nav-link{ text-decoration:none; font-weight:600; border-color:var(--accent); color:var(--accent); }
+  a.btn.nav-link:hover{ background:rgba(255,179,0,0.14); }
+
   /* Left process panel */
   #processPanel{
     position:fixed; top:76px; left:14px; width:236px; max-height:min(58vh, 480px);
@@ -163,6 +168,8 @@
     .hmi-grid{ grid-template-columns:repeat(3,1fr); }
     #topbar h1{ font-size:14px; }
     #topbar .sub{ display:none; }
+    #topbar{ flex-wrap:wrap; }
+    #navLinks{ order:3; width:100%; margin:0; }
     .btn span.label{ display:none; }
   }
 </style>
@@ -179,6 +186,10 @@
     <h1>PLC 기반 ECU 자동 생산·검사 라인</h1>
     <div class="sub">자동차 전장품(ECU) 조립·검사 공정 3D 시뮬레이션</div>
   </div>
+  <nav id="navLinks" aria-label="실습 바로가기">
+    <a class="btn nav-link" href="motor3state.html">⚡ 모터 3상 상태 실습</a>
+    <a class="btn nav-link" href="interlock.html">🔁 인터록 실습</a>
+  </nav>
   <div id="controls">
     <button class="btn active" id="btnPlay" title="컨베이어 재생/정지">⏸ <span class="label">정지</span></button>
     <button class="btn" id="btnRotate" title="자동 회전">↻ <span class="label">자동회전</span></button>
