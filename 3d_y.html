@@ -1,0 +1,2170 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 산업용 전동기 기동반 시뮬레이터 (Y-Δ & 단권변압기)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Tone.js for Industrial Relay & Motor Acoustics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Pretendard:wght@400;500;600;700&display=swap');
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #070b12;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: #e2e8f0;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        #canvas-container {
+            position: absolute;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+        /* Ultra-slim Top Bar */
+        .slim-bar {
+            background: rgba(7, 11, 18, 0.92);
+            border-bottom: 1px solid rgba(51, 65, 85, 0.7);
+        }
+        .hud-btn {
+            transition: all 0.12s ease;
+        }
+        .hud-btn:active {
+            transform: scale(0.95);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        /* Sequence active wire glow */
+        .wire-active {
+            stroke: #f59e0b !important;
+            stroke-width: 2.6px !important;
+            filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.85));
+        }
+        .wire-power-y {
+            stroke: #eab308 !important;
+            stroke-width: 2.8px !important;
+            filter: drop-shadow(0 0 5px rgba(234, 179, 8, 0.85));
+        }
+        .wire-power-d {
+            stroke: #ef4444 !important;
+            stroke-width: 2.8px !important;
+            filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.9));
+        }
+        .coil-active-y {
+            fill: rgba(234, 179, 8, 0.28) !important;
+            stroke: #eab308 !important;
+        }
+        .coil-active-d {
+            fill: rgba(239, 68, 68, 0.28) !important;
+            stroke: #ef4444 !important;
+        }
+        .coil-active-m {
+            fill: rgba(16, 185, 129, 0.28) !important;
+            stroke: #10b981 !important;
+        }
+        input[type=range] {
+            accent-color: #f59e0b;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden">
+
+    <!-- 3D Viewport Container (100% Unobstructed Fullscreen) -->
+    <div id="canvas-container"></div>
+
+    <!-- SINGLE ULTRA-SLIM 40px TOP BAR (No floating rectangular boxes covering the 3D scene) -->
+    <header class="fixed top-0 left-0 right-0 h-10 z-30 slim-bar px-3 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+        <!-- Left: Title & Live Compact Status + Direct Controls -->
+        <div class="flex items-center gap-2 shrink-0">
+            <div class="flex items-center gap-1.5 pr-2 border-r border-slate-800">
+                <i class="fa-solid fa-industry text-amber-400 text-xs"></i>
+                <span class="text-xs font-bold text-white whitespace-nowrap">Y-Δ 3D 기동반</span>
+                <div id="state-badge" class="px-1.5 py-0.5 rounded text-[10px] font-bold mono bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                    <span id="state-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    <span id="state-text">READY</span>
+                </div>
+            </div>
+
+            <!-- Hardware Direct Controls -->
+            <button id="btn-mccb" onclick="toggleMCCB()" class="hud-btn px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 whitespace-nowrap">
+                <i class="fa-solid fa-power-off text-[10px]"></i>
+                <span id="btn-mccb-text">MCCB ON</span>
+            </button>
+            <button onclick="pressStartButton()" class="hud-btn px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-500 text-emerald-300 font-bold text-[11px] flex items-center gap-1 whitespace-nowrap">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>START
+            </button>
+            <button onclick="pressStopButton()" class="hud-btn px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/35 border border-rose-500 text-rose-300 font-bold text-[11px] flex items-center gap-1 whitespace-nowrap">
+                <span class="w-2 h-2 rounded-full bg-rose-500"></span>STOP
+            </button>
+            <button onclick="triggerEOCRTripTest()" class="hud-btn px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-[11px] font-semibold whitespace-nowrap" title="EOCR 과부하 트립 시험">
+                EOCR 트립
+            </button>
+            <button onclick="resetEOCR()" class="hud-btn px-2 py-1 rounded bg-sky-500/15 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 text-[11px] font-semibold whitespace-nowrap" title="EOCR 트립 리셋">
+                리셋
+            </button>
+
+            <!-- Compact Timer T Slider -->
+            <div class="hidden md:flex items-center gap-1.5 pl-2 border-l border-slate-800 text-[11px] whitespace-nowrap">
+                <span class="text-slate-400">타이머(T):</span>
+                <input id="slider-timer" type="range" min="1.5" max="10.0" step="0.5" value="4.0" oninput="updateTimerSetting(this.value)" class="w-16 h-1 bg-slate-700 rounded cursor-pointer">
+                <span id="label-timer-set" class="mono font-bold text-amber-400 w-9">4.0s</span>
+            </div>
+
+            <!-- Compact Live Inline Readout (No Box) -->
+            <div class="hidden lg:flex items-center gap-2.5 pl-2 border-l border-slate-800 text-[11px] mono whitespace-nowrap">
+                <span class="text-sky-400"><b id="val-voltage">0</b>V</span>
+                <span class="text-amber-400"><b id="val-current">0.0</b>A</span>
+                <span class="text-emerald-400"><b id="val-rpm">0</b>RPM</span>
+                <span id="transition-timer- readout" class="text-slate-400">T:0.0s</span>
+                <span class="hidden" id="val-torque">0.0</span>
+                <span class="hidden" id="kpi-voltage-mode"></span>
+                <span class="hidden" id="label-load-set">50 %</span>
+                <span class="hidden" id="wire-progress-badge"></span>
+                <span class="hidden" id="wire-guide-text"></span>
+                <!-- Hidden status mirrors to keep existing functions error-free -->
+                <span id="lamp-gl" class="hidden"></span>
+                <span id="lamp-yl" class="hidden"></span>
+                <span id="lamp-rl" class="hidden"></span>
+                <span id="lamp-ol" class="hidden"></span>
+                <div id="ind-mcm" class="hidden"><div></div><div></div></div>
+                <div id="ind-mcy" class="hidden"><div></div><div></div></div>
+                <div id="ind-mcd" class="hidden"><div></div><div></div></div>
+                <div id="ind-timer" class="hidden"><div></div><div></div></div>
+            </div>
+        </div>
+
+        <!-- Right: Wiring Reset/Auto, Camera Presets & Optional Popover Toggles -->
+        <div class="flex items-center gap-1.5 shrink-0">
+            <button id="mode-sim-btn" onclick="setWorkMode('SIM')" class="hidden"></button>
+            <button id="mode-wire-btn" onclick="setWorkMode('WIRE')" class="hidden"></button>
+            <div id="wiring-practice-bar" class="hidden"></div>
+
+            <button onclick="setWorkMode('WIRE'); clearPracticeWires();" class="hud-btn px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 text-[11px] border border-slate-700 whitespace-nowrap" title="결선을 지우고 3D 단자를 직접 클릭하여 결선 실습">
+                <i class="fa-solid fa-bezier-curve mr-1"></i>결선초기화
+            </button>
+            <button onclick="setWorkMode('SIM'); autoCompleteWires();" class="hud-btn px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px] border border-slate-700 whitespace-nowrap" title="표준 Y-Δ 3D 결선 자동 완성">
+                <i class="fa-solid fa-plug-circle-check mr-1"></i>자동결선
+            </button>
+
+            <div class="flex items-center bg-slate-900 rounded p-0.5 border border-slate-800 text-[11px]">
+                <button onclick="setCameraPreset('OVERVIEW')" class="hud-btn px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300" title="전체 보기">전체</button>
+                <button onclick="setCameraPreset('CONTACTORS')" class="hud-btn px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300" title="전자접촉기 확대">MC·T</button>
+                <button onclick="setCameraPreset('MOTOR_TERM')" class="hud-btn px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300" title="전동기 6단자함 확대">6단자함</button>
+                <button onclick="setCameraPreset('CONTROL_BOX')" class="hud-btn px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300" title="MCCB·EOCR·버튼 확대">조작부</button>
+            </div>
+
+            <button id="btn-toggle-sound" onclick="toggleAudio()" class="hud-btn px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-emerald-400 border border-slate-700" title="사운드 켜기/끄기">
+                <i id="sound-icon" class="fa-solid fa-volume-high"></i>
+            </button>
+            <button onclick="toggleLeftPanel()" class="hud-btn px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700" title="2D 시퀀스 회로도 열기/닫기 (기본 숨김)">
+                <i class="fa-solid fa-diagram-project"></i>
+            </button>
+            <button onclick="toggleRightPanel()" class="hud-btn px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700" title="파형 그래프 열기/닫기 (기본 숨김)">
+                <i class="fa-solid fa-chart-line"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Hidden Popover Drawers (Closed by default so 0% of the 3D simulator is covered by boxes) -->
+    <aside id="left-panel" class="hidden fixed top-12 left-3 w-[340px] h-[460px] z-20 bg-slate-950/95 border border-slate-700 rounded-xl p-2.5 flex-col">
+        <div class="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800">
+            <span class="text-xs font-bold text-white">2D 시퀀스 회로도</span>
+            <button onclick="toggleLeftPanel()" class="text-slate-400 hover:text-white text-xs"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="relative flex-1 bg-slate-950 rounded border border-slate-800 p-1 flex items-center justify-center overflow-hidden">
+            <svg id="sequence-svg" viewBox="0 0 380 450" class="w-full h-full select-none">
+                <defs>
+                    <pattern id="smallGrid" width="15" height="15" patternUnits="userSpaceOnUse">
+                        <path d="M 15 0 L 0 0 0 15" fill="none" stroke="rgba(51,65,85,0.22)" stroke-width="0.5"/>
+                    </pattern>
+                </defs>
+                <rect width="380" height="450" fill="url(#smallGrid)" />
+                <text x="10" y="16" fill="#94a3b8" font-size="9.5" font-weight="bold">[주회로: 3Φ 380V 60Hz]</text>
+                <text x="195" y="16" fill="#94a3b8" font-size="9.5" font-weight="bold">[보조 제어회로: AC 220V]</text>
+                <line x1="185" y1="5" x2="185" y2="445" stroke="#334155" stroke-width="1" stroke-dasharray="3,3"/>
+                <text x="22" y="32" fill="#ef4444" font-size="9" font-weight="bold">R</text>
+                <text x="42" y="32" fill="#e2e8f0" font-size="9" font-weight="bold">S</text>
+                <text x="62" y="32" fill="#3b82f6" font-size="9" font-weight="bold">T</text>
+                <line x1="25" y1="36" x2="25" y2="55" stroke="#ef4444" stroke-width="2"/>
+                <line x1="45" y1="36" x2="45" y2="55" stroke="#cbd5e1" stroke-width="2"/>
+                <line x1="65" y1="36" x2="65" y2="55" stroke="#3b82f6" stroke-width="2"/>
+                <g class="cursor-pointer" onclick="toggleMCCB()">
+                    <rect x="14" y="53" width="62" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1"/>
+                    <line id="svg-mccb-1" x1="25" y1="77" x2="20" y2="56" stroke="#94a3b8" stroke-width="2"/>
+                    <line id="svg-mccb-2" x1="45" y1="77" x2="40" y2="56" stroke="#94a3b8" stroke-width="2"/>
+                    <line id="svg-mccb-3" x1="65" y1="77" x2="60" y2="56" stroke="#94a3b8" stroke-width="2"/>
+                    <text x="80" y="68" fill="#cbd5e1" font-size="8.5" font-weight="bold">MCCB</text>
+                </g>
+                <g id="svg-wire-mccb-out">
+                    <line x1="25" y1="77" x2="25" y2="140" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="45" y1="77" x2="45" y2="140" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="65" y1="77" x2="65" y2="140" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="25" y1="120" x2="105" y2="120" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="45" y1="125" x2="120" y2="125" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="65" y1="130" x2="135" y2="130" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="105" y1="120" x2="105" y2="140" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="120" y1="125" x2="120" y2="140" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="135" y1="130" x2="135" y2="140" stroke="#475569" stroke-width="1.5"/>
+                </g>
+                <rect x="16" y="92" width="58" height="16" rx="2" fill="#0f172a" stroke="#f59e0b" stroke-width="1"/>
+                <text x="32" y="103" fill="#fbbf24" font-size="8" font-weight="bold">EOCR</text>
+                <rect id="svg-box-mcm" x="15" y="140" width="60" height="26" rx="3" fill="#0f172a" stroke="#10b981" stroke-width="1.2"/>
+                <text x="31" y="156" fill="#34d399" font-size="9" font-weight="bold">MC-M</text>
+                <rect id="svg-box-mcd" x="98" y="140" width="46" height="26" rx="3" fill="#0f172a" stroke="#ef4444" stroke-width="1.2"/>
+                <text x="109" y="156" fill="#f87171" font-size="9" font-weight="bold">MC-D</text>
+                <g id="svg-wire-u1v1w1">
+                    <line x1="25" y1="166" x2="25" y2="235" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="45" y1="166" x2="45" y2="235" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="65" y1="166" x2="65" y2="235" stroke="#475569" stroke-width="1.8"/>
+                </g>
+                <text x="12" y="232" fill="#ef4444" font-size="8" font-weight="bold">U1</text>
+                <text x="33" y="232" fill="#e2e8f0" font-size="8" font-weight="bold">V1</text>
+                <text x="52" y="232" fill="#3b82f6" font-size="8" font-weight="bold">W1</text>
+                <circle cx="45" cy="268" r="28" fill="#0f172a" stroke="#94a3b8" stroke-width="2"/>
+                <circle id="svg-motor-rotor" cx="45" cy="268" r="18" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="6,4"/>
+                <text x="34" y="271" fill="#ffffff" font-size="10" font-weight="bold">3Φ M</text>
+                <text x="11" y="312" fill="#3b82f6" font-size="8" font-weight="bold">W2</text>
+                <text x="33" y="312" fill="#ef4444" font-size="8" font-weight="bold">U2</text>
+                <text x="53" y="312" fill="#e2e8f0" font-size="8" font-weight="bold">V2</text>
+                <g id="svg-wire-w2u2v2">
+                    <line x1="25" y1="296" x2="25" y2="355" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="45" y1="296" x2="45" y2="365" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="65" y1="296" x2="65" y2="375" stroke="#475569" stroke-width="1.8"/>
+                    <line x1="25" y1="355" x2="105" y2="355" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="45" y1="365" x2="120" y2="365" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="65" y1="375" x2="135" y2="375" stroke="#475569" stroke-width="1.5"/>
+                </g>
+                <g id="svg-wire-delta-loop">
+                    <line x1="105" y1="166" x2="105" y2="355" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="120" y1="166" x2="120" y2="365" stroke="#475569" stroke-width="1.5"/>
+                    <line x1="135" y1="166" x2="135" y2="375" stroke="#475569" stroke-width="1.5"/>
+                </g>
+                <g id="svg-wire-star-bridge">
+                    <line x1="105" y1="265" x2="150" y2="265" stroke="#475569" stroke-width="1.4"/>
+                    <line x1="120" y1="272" x2="160" y2="272" stroke="#475569" stroke-width="1.4"/>
+                    <line x1="135" y1="279" x2="170" y2="279" stroke="#475569" stroke-width="1.4"/>
+                    <line x1="148" y1="215" x2="172" y2="215" stroke="#eab308" stroke-width="2.5"/>
+                    <line x1="150" y1="215" x2="150" y2="232" stroke="#eab308" stroke-width="1.5"/>
+                    <line x1="160" y1="215" x2="160" y2="232" stroke="#eab308" stroke-width="1.5"/>
+                    <line x1="170" y1="215" x2="170" y2="232" stroke="#eab308" stroke-width="1.5"/>
+                </g>
+                <rect id="svg-box-mcy" x="142" y="232" width="36" height="26" rx="3" fill="#0f172a" stroke="#eab308" stroke-width="1.2"/>
+                <text x="147" y="248" fill="#facc15" font-size="8.5" font-weight="bold">MC-Y</text>
+                <line id="svg-ctrl-bus-r" x1="200" y1="35" x2="365" y2="35" stroke="#475569" stroke-width="2"/>
+                <g class="cursor-pointer" onclick="triggerEOCRTripTest()">
+                    <circle cx="240" cy="60" r="2.5" fill="#94a3b8"/>
+                    <circle cx="240" cy="82" r="2.5" fill="#94a3b8"/>
+                    <line id="svg-eocr-nc" x1="240" y1="60" x2="233" y2="80" stroke="#ef4444" stroke-width="2"/>
+                </g>
+                <line x1="240" y1="35" x2="240" y2="60" stroke="#475569" stroke-width="1.6"/>
+                <g class="cursor-pointer" onclick="pressStopButton()">
+                    <line id="svg-ctrl-after-eocr" x1="240" y1="82" x2="240" y2="108" stroke="#475569" stroke-width="1.6"/>
+                    <line id="svg-pb-stop" x1="236" y1="108" x2="236" y2="130" stroke="#ef4444" stroke-width="2.2"/>
+                </g>
+                <g class="cursor-pointer" onclick="pressStartButton()">
+                    <line x1="240" y1="130" x2="240" y2="155" stroke="#475569" stroke-width="1.6"/>
+                    <line id="svg-pb-start" x1="240" y1="155" x2="230" y2="177" stroke="#10b981" stroke-width="2"/>
+                </g>
+                <line id="svg-mcm-hold" x1="275" y1="155" x2="267" y2="177" stroke="#10b981" stroke-width="1.8"/>
+                <line id="svg-branch-mcm" x1="240" y1="180" x2="240" y2="365" stroke="#475569" stroke-width="1.6"/>
+                <circle id="svg-coil-mcm" cx="240" cy="380" r="13" fill="#0f172a" stroke="#10b981" stroke-width="1.6"/>
+                <line id="svg-branch-timer" x1="278" y1="192" x2="278" y2="365" stroke="#475569" stroke-width="1.5"/>
+                <circle id="svg-coil-t" cx="278" cy="380" r="13" fill="#0f172a" stroke="#38bdf8" stroke-width="1.6"/>
+                <line id="svg-contact-tb" x1="314" y1="225" x2="308" y2="250" stroke="#eab308" stroke-width="2"/>
+                <line id="svg-interlock-mcd" x1="314" y1="285" x2="308" y2="310" stroke="#f87171" stroke-width="2"/>
+                <line id="svg-branch-mcy" x1="314" y1="310" x2="314" y2="365" stroke="#475569" stroke-width="1.5"/>
+                <circle id="svg-coil-mcy" cx="314" cy="380" r="13" fill="#0f172a" stroke="#eab308" stroke-width="1.6"/>
+                <line id="svg-contact-ta" x1="350" y1="225" x2="340" y2="248" stroke="#38bdf8" stroke-width="2"/>
+                <line id="svg-interlock-mcy" x1="350" y1="285" x2="344" y2="310" stroke="#eab308" stroke-width="2"/>
+                <line id="svg-branch-mcd" x1="350" y1="310" x2="350" y2="365" stroke="#475569" stroke-width="1.5"/>
+                <circle id="svg-coil-mcd" cx="350" cy="380" r="13" fill="#0f172a" stroke="#ef4444" stroke-width="1.6"/>
+            </svg>
+        </div>
+    </aside>
+
+    <aside id="right-panel" class="hidden fixed top-12 right-3 w-[340px] z-20 bg-slate-950/95 border border-slate-700 rounded-xl p-2.5">
+        <div class="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-800">
+            <span class="text-xs font-bold text-white">실시간 파형 (전류·속도·상전압)</span>
+            <button onclick="toggleRightPanel()" class="text-slate-400 hover:text-white text-xs"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <canvas id="telemetry-chart" width="320" height="110" class="w-full h-[110px] block bg-slate-950 rounded border border-slate-800"></canvas>
+    </aside>
+
+    <!-- Hidden placeholders so no floating boxes or tooltips ever appear on screen -->
+    <div id="hover-tooltip" class="hidden">
+        <span id="tooltip-title"></span><span id="tooltip-badge"></span><div id="tooltip-desc"></div>
+    </div>
+    <div id="toast-banner" class="hidden"><i id="toast-icon"></i><span id="toast-text"></span></div>
+    <div id="labels-container" class="hidden"></div>
+
+    <!-- MAIN APPLICATION & 3D SIMULATOR SCRIPT -->
+    <script>
+        /***********************************************************************
+         * 1. SYSTEM STATE & ELECTRICAL ENGINEERING MODEL (380V 3Φ 30kW 4-Pole)
+         ***********************************************************************/
+        const SIM = {
+            workMode: 'SIM',        // 'SIM' or 'WIRE'
+            mccbOn: true,           // Molded Case Circuit Breaker ON by default so user can press Start right away
+            eocrTripped: false,     // EOCR 95-96 NC open, 97-98 NO closed
+            state: 'READY',         // 'OFF', 'READY', 'STAR', 'OPEN_TRANS', 'DELTA', 'TRIP'
+            mcM: false,             // Main Contactor (U1, V1, W1)
+            mcY: false,             // Star Contactor (Shorts W2, U2, V2)
+            mcD: false,             // Delta Contactor (Loops U1-W2, V1-U2, W1-V2)
+            timerEnergized: false,
+            timerElapsed: 0.0,
+            timerTarget: 4.0,       // Default 4.0 sec Y -> Delta transition
+            openTransitionTimer: 0, // 45ms arc-clearing deadtime between MC-Y drop and MC-D pull-in
+            pbStartPressed: 0,      // Visual animation timer
+            pbStopPressed: 0,
+
+            // Motor Physics & Electrical Telemetry
+            rpm: 0,
+            syncRpm: 1800,
+            ratedCurrent: 58.0,     // 30kW @ 380V ~ 58A rated
+            dolLockCurrent: 348.0,  // 6x rated inrush if DOL
+            lineCurrent: 0.0,
+            phaseVoltage: 0.0,      // 220V in Star, 380V in Delta
+            motorTorque: 0.0,       // % of rated torque
+            loadTorque: 50.0,       // User adjustable load %
+            thermalAccumulator: 0.0,// EOCR I^2*t thermal model
+            deltaSwitchSpike: 0.0,  // Transient current spike on Y -> Delta switchover
+
+            // UI & Audio toggles
+            show3DLabels: false,
+            audioEnabled: true,
+            audioInitialized: false,
+
+            // Interactive 3D Wiring Practice state
+            selectedTerminal: null,
+            completedWires: new Set([
+                'U1', 'V1', 'W1', 'W2_D', 'U2_D', 'V2_D', 'W2_Y', 'U2_Y', 'V2_Y'
+            ]),
+            totalRequiredWires: 9,
+
+            // Telemetry History for Oscilloscope
+            history: []
+        };
+
+        // Pre-fill oscilloscope history
+        for (let i = 0; i < 160; i++) {
+            SIM.history.push({ iL: 0, rpm: 0, vp: 0 });
+        }
+
+        /***********************************************************************
+         * 2. INDUSTRIAL ACOUSTICS (Tone.js Synthesizer for Contactor Clack & Hum)
+         ***********************************************************************/
+        let contactorSynth = null;
+        let motorHumOsc = null;
+        let motorHumGain = null;
+
+        async function initAudioIfNeeded() {
+            if (SIM.audioInitialized || !SIM.audioEnabled || typeof Tone === 'undefined') return;
+            try {
+                await Tone.start();
+                contactorSynth = new Tone.MembraneSynth({
+                    pitchDecay: 0.015,
+                    octaves: 3,
+                    envelope: { attack: 0.001, decay: 0.07, sustain: 0, release: 0.04 }
+                }).toDestination();
+                contactorSynth.volume.value = -6;
+
+                motorHumGain = new Tone.Gain(0).toDestination();
+                motorHumOsc = new Tone.Oscillator(60, "sawtooth").connect(motorHumGain);
+                motorHumOsc.start();
+                SIM.audioInitialized = true;
+            } catch (e) {
+                // Ignore audio context restrictions if blocked
+            }
+        }
+
+        function playContactorClack(type = 'CLOSE') {
+            if (!SIM.audioEnabled) return;
+            initAudioIfNeeded();
+            if (!contactorSynth) return;
+            try {
+                if (type === 'CLOSE') {
+                    contactorSynth.triggerAttackRelease("C2", "32n");
+                } else if (type === 'OPEN') {
+                    contactorSynth.triggerAttackRelease("G2", "32n");
+                } else if (type === 'TRIP') {
+                    contactorSynth.triggerAttackRelease("A3", "16n");
+                }
+            } catch (e) {}
+        }
+
+        function updateMotorAcoustics() {
+            if (!SIM.audioInitialized || !motorHumGain || !motorHumOsc) return;
+            if (!SIM.audioEnabled || (SIM.state !== 'STAR' && SIM.state !== 'DELTA')) {
+                motorHumGain.gain.rampTo(0, 0.1);
+                return;
+            }
+            const freq = 55 + (SIM.rpm / 1800) * 65;
+            motorHumOsc.frequency.rampTo(freq, 0.08);
+            const vol = SIM.state === 'STAR' ? 0.025 : 0.045;
+            motorHumGain.gain.rampTo(vol, 0.1);
+        }
+
+        /***********************************************************************
+         * 3. THREE.JS SCENE, CAMERA, ORBIT CONTROLS & LIGHTING
+         ***********************************************************************/
+        let scene, camera, renderer, raycaster, mouse;
+        const interactables = [];
+        const labelAnchors = [];
+        const currentParticles = [];
+        const practiceWireMeshes = {};
+
+        // 3D Dynamic Parts References
+        const meshes = {
+            mccbLever: null,
+            plungerM: null,
+            plungerD: null,
+            plungerY: null,
+            interlockArm: null,
+            timerPointer: null,
+            timerLedPwr: null,
+            timerLedOut: null,
+            eocrLedRun: null,
+            eocrLedTrip: null,
+            pbStartCap: null,
+            pbStopCap: null,
+            lampGL: null,
+            lampYL: null,
+            lampRL: null,
+            lampOL: null,
+            motorShaftGroup: null,
+            windingBarsU1V1W1: [],
+            windingBarsW2U2V2: [],
+            starShortingBridge: null
+        };
+
+        // Custom smooth camera orbit state
+        const camCtrl = {
+            isDown: false,
+            button: 0,
+            lastX: 0,
+            lastY: 0,
+            theta: 0.08,
+            phi: 1.20,
+            radius: 19.5,
+            target: new THREE.Vector3(1.5, 0.2, 0),
+            desiredTheta: 0.08,
+            desiredPhi: 1.20,
+            desiredRadius: 19.5,
+            desiredTarget: new THREE.Vector3(1.5, 0.2, 0),
+            dragMoved: false
+        };
+
+        function initThreeScene() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x070b12);
+            scene.fog = new THREE.FogExp2(0x070b12, 0.014);
+
+            camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // Industrial Studio Lighting
+            const ambientLight = new THREE.AmbientLight(0xdbeafe, 0.65);
+            scene.add(ambientLight);
+
+            const mainDirLight = new THREE.DirectionalLight(0xffffff, 1.15);
+            mainDirLight.position.set(12, 22, 18);
+            mainDirLight.castShadow = true;
+            mainDirLight.shadow.mapSize.width = 2048;
+            mainDirLight.shadow.mapSize.height = 2048;
+            scene.add(mainDirLight);
+
+            const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
+            fillLight.position.set(-15, 8, 10);
+            scene.add(fillLight);
+
+            const warmAccent = new THREE.PointLight(0xf59e0b, 0.5, 30);
+            warmAccent.position.set(2, 6, 8);
+            scene.add(warmAccent);
+
+            // Semiconductor / Plant Cleanroom Floor Grid
+            const gridHelper = new THREE.GridHelper(60, 60, 0x1e293b, 0x0f172a);
+            gridHelper.position.y = -7.2;
+            scene.add(gridHelper);
+
+            // Build All 3D Hardware Modules
+            buildMCCEnclosureAndRails();
+            buildMCCBModule(-5.5, 3.6, 0);
+            buildEOCRModule(-1.5, 3.6, 0);
+            buildMagneticContactor('MC-M', -5.6, -1.0, 0, 0x10b981, '주 접촉기 (U1·V1·W1 전원공급)');
+            buildMagneticContactor('MC-D', -1.8, -1.0, 0, 0xef4444, '델타 접촉기 (380V Δ 루프 운전)');
+            buildMagneticContactor('MC-Y',  2.0, -1.0, 0, 0xeab308, '스타 접촉기 (W2·U2·V2 중성점 단락)');
+            buildMechanicalInterlockUnit(-0.05, -0.7, 0.85);
+            buildTimerModule(5.0, -1.0, 0);
+            buildOperatorControlStation(4.2, 3.6, 0);
+            buildThreePhaseMotorAnd6TerminalBox(9.6, -2.2, 0);
+            buildPowerBusbarsAnd3DWiring();
+            buildCurrentFlowParticles();
+
+            // Setup Mouse & Touch Event Listeners
+            const dom = renderer.domElement;
+            dom.addEventListener('pointerdown', onPointerDown);
+            dom.addEventListener('pointermove', onPointerMove);
+            dom.addEventListener('pointerup', onPointerUp);
+            dom.addEventListener('wheel', onMouseWheel, { passive: false });
+            dom.addEventListener('contextmenu', e => e.preventDefault());
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        /***********************************************************************
+         * 4. BUILD REALISTIC 3D HARDWARE MODULES
+         ***********************************************************************/
+        // Helper to create crisp procedural canvas textures for industrial faceplates
+        function createLabelTexture(drawFn, width = 256, height = 256) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            drawFn(ctx, width, height);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.anisotropy = 4;
+            return tex;
+        }
+
+        function registerInteractable(mesh, info) {
+            mesh.userData = Object.assign(mesh.userData || {}, info);
+            interactables.push(mesh);
+        }
+
+        // Disabled floating rectangular DOM tags so 3D models are never obscured
+        function add3DTag(text, subtext, worldPos, colorClass = '') {
+            return;
+        }
+
+        // 4.1 MCC Steel Backplate, Slotted PVC Wiring Ducts & DIN Rails
+        function buildMCCEnclosureAndRails() {
+            const group = new THREE.Group();
+
+            // Outer MCC Cabinet Housing Frame
+            const cabinetMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6, metalness: 0.4 });
+            const backPanel = new THREE.Mesh(new THREE.BoxGeometry(15.6, 12.6, 0.4), cabinetMat);
+            backPanel.position.set(-0.6, 0.6, -0.6);
+            backPanel.receiveShadow = true;
+            group.add(backPanel);
+
+            // Galvanized Mounting Plate
+            const plateMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4, metalness: 0.65 });
+            const innerPlate = new THREE.Mesh(new THREE.BoxGeometry(14.8, 11.8, 0.15), plateMat);
+            innerPlate.position.set(-0.6, 0.6, -0.35);
+            innerPlate.receiveShadow = true;
+            group.add(innerPlate);
+
+            // Slotted PVC Cable Ducts (Horizontal & Vertical)
+            const ductMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.5 });
+            const hDuctPositions = [5.6, 1.4, -3.5];
+            hDuctPositions.forEach(y => {
+                const duct = new THREE.Mesh(new THREE.BoxGeometry(14.2, 0.55, 0.75), ductMat);
+                duct.position.set(-0.6, y, 0.05);
+                group.add(duct);
+            });
+
+            // Aluminum 35mm DIN Rails
+            const railMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.25, metalness: 0.85 });
+            const rail1 = new THREE.Mesh(new THREE.BoxGeometry(13.8, 0.45, 0.18), railMat);
+            rail1.position.set(-0.6, 3.6, -0.2);
+            group.add(rail1);
+
+            const rail2 = new THREE.Mesh(new THREE.BoxGeometry(13.8, 0.45, 0.18), railMat);
+            rail2.position.set(-0.6, -1.0, -0.2);
+            group.add(rail2);
+
+            // Heavy Motor Base Skid on Right
+            const skid = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.7, 5.5), cabinetMat);
+            skid.position.set(9.8, -5.3, 0);
+            group.add(skid);
+
+            scene.add(group);
+        }
+
+        // 4.2 MCCB (3-Pole Molded Case Circuit Breaker)
+        function buildMCCBModule(x, y, z) {
+            const g = new THREE.Group();
+            g.position.set(x, y, z);
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e2530, roughness: 0.45 });
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.1, 1.4), bodyMat);
+            body.position.z = 0.5;
+            body.castShadow = true;
+            g.add(body);
+
+            // Faceplate Texture
+            const faceTex = createLabelTexture((ctx, w, h) => {
+                ctx.fillStyle = '#1e2530';
+                ctx.fillRect(0, 0, w, h);
+                ctx.strokeStyle = '#475569';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(8, 8, w - 16, h - 16);
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 24px sans-serif';
+                ctx.fillText('MCCB 100AF', 22, 42);
+                ctx.fillStyle = '#38bdf8';
+                ctx.font = 'bold 18px monospace';
+                ctx.fillText('AC 380V 3P 75A', 22, 68);
+                ctx.fillStyle = '#ef4444';
+                ctx.fillText('ON (투입)', 85, 115);
+                ctx.fillStyle = '#10b981';
+                ctx.fillText('OFF (차단)', 80, 215);
+            });
+            const face = new THREE.Mesh(
+                new THREE.PlaneGeometry(2.4, 2.9),
+                new THREE.MeshBasicMaterial({ map: faceTex })
+            );
+            face.position.set(0, 0, 1.21);
+            g.add(face);
+
+            // R-S-T Top & Bottom Screw Terminals
+            const screwMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.85, roughness: 0.2 });
+            [-0.75, 0, 0.75].forEach((tx, idx) => {
+                const topTerm = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.25, 16), screwMat);
+                topTerm.rotation.x = Math.PI / 2;
+                topTerm.position.set(tx, 1.35, 0.95);
+                g.add(topTerm);
+
+                const botTerm = topTerm.clone();
+                botTerm.position.set(tx, -1.35, 0.95);
+                g.add(botTerm);
+            });
+
+            // Toggle Lever Handle
+            const leverGroup = new THREE.Group();
+            leverGroup.position.set(0, -0.1, 1.22);
+            const leverMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(0.55, 0.85, 0.45),
+                new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.3 })
+            );
+            leverMesh.position.y = 0.22;
+            leverGroup.add(leverMesh);
+            g.add(leverGroup);
+            meshes.mccbLever = leverGroup;
+
+            registerInteractable(body, {
+                title: 'MCCB (배선용 차단기 3P 75A)',
+                badge: '주전원 개폐',
+                desc: '3상 380V R·S·T 주회로 전원을 투입(ON)하거나 단락/과전류 시 회로를 차단(OFF)합니다.',
+                onClick: () => toggleMCCB()
+            });
+            registerInteractable(leverMesh, body.userData);
+
+            add3DTag('MCCB', '3P 75A 차단기', new THREE.Vector3(x, y + 1.85, z + 1.0), 'border-sky-500/60 text-sky-300');
+            scene.add(g);
+        }
+
+        // 4.3 EOCR (Electronic Over-Current Relay - Digital Type)
+        function buildEOCRModule(x, y, z) {
+            const g = new THREE.Group();
+            g.position.set(x, y, z);
+
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(2.5, 2.7, 1.35),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4 })
+            );
+            body.position.z = 0.48;
+            body.castShadow = true;
+            g.add(body);
+
+            // 3 Current Transformer (CT) Through-holes at top
+            const holeMat = new THREE.MeshStandardMaterial({ color: 0x090d16 });
+            [-0.7, 0, 0.7].forEach(hx => {
+                const ct = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.6, 16), holeMat);
+                ct.position.set(hx, 1.15, 0.55);
+                g.add(ct);
+            });
+
+            // Faceplate with Digital Display, Knobs (LOAD / D-TIME), TEST & RESET Buttons
+            const faceTex = createLabelTexture((ctx, w, h) => {
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, w, h);
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(6, 6, w - 12, h - 12);
+                ctx.fillStyle = '#fbbf24';
+                ctx.font = 'bold 22px sans-serif';
+                ctx.fillText('EOCR-SS (과전류계전기)', 16, 36);
+                // LCD Screen Window
+                ctx.fillStyle = '#022c22';
+                ctx.fillRect(20, 48, 130, 52);
+                ctx.fillStyle = '#10b981';
+                ctx.font = 'bold 26px monospace';
+                ctx.fillText('SET 62A', 30, 84);
+                // Labels for terminals 95-96-97-98
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '16px monospace';
+                ctx.fillText('95-96(NC)  97-98(NO)', 20, 238);
+            });
+            const face = new THREE.Mesh(
+                new THREE.PlaneGeometry(2.35, 2.5),
+                new THREE.MeshBasicMaterial({ map: faceTex })
+            );
+            face.position.set(0, 0, 1.17);
+            g.add(face);
+
+            // Setting Rotary Dials (Current & Time)
+            const dialMat = new THREE.MeshStandardMaterial({ color: 0xfacc15 });
+            const dial1 = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.15, 16), dialMat);
+            dial1.rotation.x = Math.PI / 2;
+            dial1.position.set(-0.6, -0.25, 1.22);
+            g.add(dial1);
+
+            const dial2 = dial1.clone();
+            dial2.position.set(0.0, -0.25, 1.22);
+            g.add(dial2);
+
+            // TEST & RESET Tactile Buttons on EOCR
+            const testBtn = new THREE.Mesh(
+                new THREE.BoxGeometry(0.42, 0.32, 0.18),
+                new THREE.MeshStandardMaterial({ color: 0xef4444 })
+            );
+            testBtn.position.set(0.68, -0.1, 1.22);
+            g.add(testBtn);
+            registerInteractable(testBtn, {
+                title: 'EOCR TEST 버튼 (트립 모의 시험)',
+                badge: '95-96 개방',
+                desc: '과부하 트립을 강제로 발생시켜 95-96(b접점)을 차단하고 전동기를 비상 정지시킵니다.',
+                onClick: () => triggerEOCRTripTest()
+            });
+
+            const resetBtn = new THREE.Mesh(
+                new THREE.BoxGeometry(0.42, 0.32, 0.18),
+                new THREE.MeshStandardMaterial({ color: 0x3b82f6 })
+            );
+            resetBtn.position.set(0.68, -0.52, 1.22);
+            g.add(resetBtn);
+            registerInteractable(resetBtn, {
+                title: 'EOCR RESET 버튼 (트립 복귀)',
+                badge: '정상 복귀',
+                desc: '과부하 트립 상태를 해제하고 EOCR 95-96(b접점)을 정상 복귀시킵니다.',
+                onClick: () => resetEOCR()
+            });
+
+            // Status LEDs (RUN Green, TRIP Red)
+            meshes.eocrLedRun = new THREE.Mesh(
+                new THREE.SphereGeometry(0.09, 12, 12),
+                new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 0.8 })
+            );
+            meshes.eocrLedRun.position.set(0.65, 0.45, 1.2);
+            g.add(meshes.eocrLedRun);
+
+            meshes.eocrLedTrip = new THREE.Mesh(
+                new THREE.SphereGeometry(0.09, 12, 12),
+                new THREE.MeshStandardMaterial({ color: 0x450a0a, emissive: 0xef4444, emissiveIntensity: 0 })
+            );
+            meshes.eocrLedTrip.position.set(0.9, 0.45, 1.2);
+            g.add(meshes.eocrLedTrip);
+
+            registerInteractable(body, {
+                title: 'EOCR (전자식 과전류 계전기)',
+                badge: '과부하 보호',
+                desc: '주회로 3상 전류를 감시하여 정격 초과 시 한시 동작으로 95-96(b접점)을 열어 기동반을 차단합니다. 클릭 시 트립/리셋 전환.',
+                onClick: () => SIM.eocrTripped ? resetEOCR() : triggerEOCRTripTest()
+            });
+
+            add3DTag('EOCR', '과전류계전기', new THREE.Vector3(x, y + 1.7, z + 1.0), 'border-amber-500/60 text-amber-300');
+            scene.add(g);
+        }
+
+        // 4.4 Magnetic Contactors (MC-M, MC-D, MC-Y) with Moving Plunger Core & Interactive Terminals
+        function buildMagneticContactor(id, x, y, z, themeHex, roleDesc) {
+            const g = new THREE.Group();
+            g.position.set(x, y, z);
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.25 });
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.7, 3.3, 1.55), bodyMat);
+            body.position.z = 0.55;
+            body.castShadow = true;
+            g.add(body);
+
+            // Top Tower / Auxiliary Contact Block Housing
+            const tower = new THREE.Mesh(
+                new THREE.BoxGeometry(1.75, 1.65, 0.65),
+                new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.35 })
+            );
+            tower.position.set(0, 0, 1.55);
+            g.add(tower);
+
+            // Faceplate Label on Contactor
+            const hexStr = '#' + themeHex.toString(16).padStart(6, '0');
+            const faceTex = createLabelTexture((ctx, w, h) => {
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(0, 0, w, h);
+                ctx.fillStyle = hexStr;
+                ctx.fillRect(0, 0, w, 52);
+                ctx.fillStyle = '#090d16';
+                ctx.font = 'bold 34px sans-serif';
+                ctx.fillText(id, 72, 38);
+                ctx.fillStyle = '#e2e8f0';
+                ctx.font = 'bold 19px monospace';
+                ctx.fillText('1L1   3L2   5L3', 32, 85);
+                ctx.fillText('2T1   4T2   6T3', 32, 238);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '17px sans-serif';
+                ctx.fillText('13NO 14NO 21NC 22NC', 24, 205);
+            });
+            const face = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.7, 1.6),
+                new THREE.MeshBasicMaterial({ map: faceTex })
+            );
+            face.position.set(0, 0, 1.89);
+            g.add(face);
+
+            // Moving Armature Plunger Core (Physically pulls inward along Z when energized!)
+            const plunger = new THREE.Mesh(
+                new THREE.BoxGeometry(0.68, 0.52, 0.32),
+                new THREE.MeshStandardMaterial({ color: themeHex, roughness: 0.25 })
+            );
+            plunger.position.set(0, 0, 1.96);
+            g.add(plunger);
+
+            if (id === 'MC-M') meshes.plungerM = plunger;
+            if (id === 'MC-D') meshes.plungerD = plunger;
+            if (id === 'MC-Y') meshes.plungerY = plunger;
+
+            // Top & Bottom 3-Phase Power Terminals (R/S/T brass screws)
+            const brassMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.85, roughness: 0.2 });
+            [-0.75, 0, 0.75].forEach((tx, idx) => {
+                const topScrew = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.25, 16), brassMat);
+                topScrew.rotation.x = Math.PI / 2;
+                topScrew.position.set(tx, 1.38, 1.08);
+                g.add(topScrew);
+
+                const botScrew = topScrew.clone();
+                botScrew.position.set(tx, -1.38, 1.08);
+                g.add(botScrew);
+
+                // Register bottom terminals for 3D Interactive Wiring Mode
+                const phaseNames = ['R/U', 'S/V', 'T/W'];
+                registerInteractable(botScrew, {
+                    title: `${id} 하부 주단자 (${phaseNames[idx]})`,
+                    badge: '주회로 단자',
+                    desc: `${id} 전자접촉기의 ${idx + 1}상 출력 단자입니다. [3D 결선 실습] 모드에서 전동기 단자와 연결할 수 있습니다.`,
+                    terminalId: `${id}_BOT_${idx}`,
+                    onClick: () => handleTerminalClick(`${id}_BOT_${idx}`)
+                });
+            });
+
+            // If MC-Y (Star Contactor), add the iconic 3-phase Neutral Shorting Copper Busbar at top!
+            if (id === 'MC-Y') {
+                const shortBar = new THREE.Mesh(
+                    new THREE.BoxGeometry(1.85, 0.22, 0.16),
+                    new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.8, roughness: 0.2, emissive: 0xeab308, emissiveIntensity: 0.15 })
+                );
+                shortBar.position.set(0, 1.65, 1.08);
+                g.add(shortBar);
+                meshes.starShortingBridge = shortBar;
+            }
+
+            registerInteractable(body, {
+                title: `${id} 전자접촉기 (Magnetic Contactor)`,
+                badge: roleDesc.split(' ')[0],
+                desc: `${roleDesc}. 코일 여자 시 중앙 플런저가 흡입되며 주접점(a)이 닫히고 인터록 보조접점(b)이 열립니다.`,
+                onClick: () => inspectContactorAction(id)
+            });
+            registerInteractable(tower, body.userData);
+            registerInteractable(plunger, body.userData);
+
+            const badgeColor = id === 'MC-M' ? 'border-emerald-500/60 text-emerald-300' :
+                               id === 'MC-D' ? 'border-rose-500/60 text-rose-300' : 'border-amber-500/60 text-amber-300';
+            add3DTag(id, id === 'MC-M' ? '주 접촉기' : id === 'MC-D' ? 'Δ 운전' : 'Y 기동(단락)', new THREE.Vector3(x, y + 2.0, z + 1.2), badgeColor);
+            scene.add(g);
+        }
+
+        // 4.5 Mechanical & Electrical Interlock Block between MC-D and MC-Y
+        function buildMechanicalInterlockUnit(x, y, z) {
+            const g = new THREE.Group();
+            g.position.set(x, y, z);
+
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(1.05, 1.4, 0.8),
+                new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 })
+            );
+            g.add(body);
+
+            // Seesaw Mechanical Interlock Rocker Arm
+            const rocker = new THREE.Mesh(
+                new THREE.BoxGeometry(0.85, 0.22, 0.25),
+                new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.3 })
+            );
+            rocker.position.set(0, 0, 0.45);
+            g.add(rocker);
+            meshes.interlockArm = rocker;
+
+            registerInteractable(body, {
+                title: '기계적·전기적 인터록 유닛 (MC-D ↔ MC-Y)',
+                badge: '3상 단락방지',
+                desc: '스타(MC-Y)와 델타(MC-D) 접촉기가 동시에 투입되면 3상 전원 단락 사고가 발생하므로, 기계적 레버와 상대 b접점으로 동시 투입을 원천 차단합니다.',
+                onClick: () => testInterlockSafety()
+            });
+
+            add3DTag('INTERLOCK', '동시투입 방지', new THREE.Vector3(x, y - 1.2, z + 0.6), 'border-purple-500/60 text-purple-300');
+            scene.add(g);
+        }
+
+        // 4.6 8-Pin On-Delay Timer Module (한시 동작 순시 복귀 타이머 - T)
+        function buildTimerModule(x, y, z) {
+            const g = new THREE.Group();
+            g.position.set(x, y, z);
+
+            // 8-Pin Octal Socket Base
+            const base = new THREE.Mesh(
+                new THREE.BoxGeometry(1.75, 2.4, 0.7),
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 })
+            );
+            base.position.z = 0.25;
+            g.add(base);
+
+            // Timer Relay Body
+            const relayBody = new THREE.Mesh(
+                new THREE.BoxGeometry(1.55, 1.85, 1.25),
+                new THREE.MeshStandardMaterial({ color: 0xdbeafe, roughness: 0.35 })
+            );
+            relayBody.position.z = 1.1;
+            relayBody.castShadow = true;
+            g.add(relayBody);
+
+            // Timer Faceplate with Scale Dial (0 ~ 10 SEC), PWR LED & UP LED
+            const faceTex = createLabelTexture((ctx, w, h) => {
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(0, 0, w, h);
+                ctx.strokeStyle = '#38bdf8';
+                ctx.lineWidth = 5;
+                ctx.strokeRect(6, 6, w - 12, h - 12);
+                ctx.fillStyle = '#38bdf8';
+                ctx.font = 'bold 24px sans-serif';
+                ctx.fillText('TIMER (한시T)', 20, 36);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = 'bold 16px monospace';
+                ctx.fillText('PWR(2-7)   UP(8-6)', 22, 66);
+                // Graduated circular dial arc
+                ctx.strokeStyle = '#f8fafc';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(128, 155, 58, 0.75 * Math.PI, 2.25 * Math.PI);
+                ctx.stroke();
+                ctx.fillStyle = '#facc15';
+                ctx.font = 'bold 18px monospace';
+                ctx.fillText('0s', 50, 215);
+                ctx.fillText('5s', 118, 88);
+                ctx.fillText('10s', 182, 215);
+            });
+            const face = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.48, 1.78),
+                new THREE.MeshBasicMaterial({ map: faceTex })
+            );
+            face.position.set(0, 0, 1.74);
+            g.add(face);
+
+            // Rotary Time Setting Knob & Pointer
+            const knobGroup = new THREE.Group();
+            knobGroup.position.set(0, -0.15, 1.78);
+            const knob = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.32, 0.36, 0.25, 24),
+                new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.3 })
+            );
+            knob.rotation.x = Math.PI / 2;
+            knobGroup.add(knob);
+
+            const pointer = new THREE.Mesh(
+                new THREE.BoxGeometry(0.08, 0.32, 0.28),
+                new THREE.MeshStandardMaterial({ color: 0xf59e0b })
+            );
+            pointer.position.y = 0.14;
+            knobGroup.add(pointer);
+            g.add(knobGroup);
+            meshes.timerPointer = knobGroup;
+
+            // Timer PWR & OUT LEDs
+            meshes.timerLedPwr = new THREE.Mesh(
+                new THREE.SphereGeometry(0.075, 12, 12),
+                new THREE.MeshStandardMaterial({ color: 0x064e3b, emissive: 0x10b981, emissiveIntensity: 0 })
+            );
+            meshes.timerLedPwr.position.set(-0.42, 0.35, 1.76);
+            g.add(meshes.timerLedPwr);
+
+            meshes.timerLedOut = new THREE.Mesh(
+                new THREE.SphereGeometry(0.075, 12, 12),
+                new THREE.MeshStandardMaterial({ color: 0x450a0a, emissive: 0xf59e0b, emissiveIntensity: 0 })
+            );
+            meshes.timerLedOut.position.set(0.42, 0.35, 1.76);
+            g.add(meshes.timerLedOut);
+
+            registerInteractable(relayBody, {
+                title: '한시 타이머 T (8핀 소켓형 On-Delay Timer)',
+                badge: '8-5(b) / 8-6(a)',
+                desc: '기동 후 설정된 시간(기본 4.0초)이 경과하면 한시 b접점(8-5)을 열어 MC-Y를 소자시키고, 한시 a접점(8-6)을 닫아 MC-D(델타 운전)를 여자시킵니다.',
+                onClick: () => {
+                    const nextVal = SIM.timerTarget >= 8.0 ? 2.5 : SIM.timerTarget + 1.5;
+                    document.getElementById('slider-timer').value = nextVal;
+                    updateTimerSetting(nextVal);
+                    showToast(`타이머(T) 설정 시간이 ${nextVal.toFixed(1)}초로 변경되었습니다.`);
+                }
+            });
+            registerInteractable(knob, relayBody.userData);
+
+            add3DTag('TIMER (T)', '한시 8-5b / 8-6a', new THREE.Vector3(x, y + 1.6, z + 1.3), 'border-sky-500/60 text-sky-300');
+            scene.add(g);
+        }
+
+        // 4.7 Local Control Station (PB-START, PB-STOP, Pilot Lamps GL/YL/RL/OL)
+        function buildOperatorControlStation(x, y, z) {
+            const g = new THREE.Group();
+            g.position.set(x, y, z);
+
+            const box = new THREE.Mesh(
+                new THREE.BoxGeometry(3.4, 2.8, 1.15),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45 })
+            );
+            box.position.z = 0.4;
+            box.castShadow = true;
+            g.add(box);
+
+            // Pilot Lamps Row at Top: GL (Green), YL (Yellow), RL (Red), OL (Orange)
+            const lampConfigs = [
+                { key: 'lampGL', x: -1.15, color: 0x10b981, label: 'GL(정지)' },
+                { key: 'lampYL', x: -0.38, color: 0xeab308, label: 'YL(Y기동)' },
+                { key: 'lampRL', x:  0.38, color: 0xef4444, label: 'RL(Δ운전)' },
+                { key: 'lampOL', x:  1.15, color: 0xf97316, label: 'OL(과부하)' }
+            ];
+            lampConfigs.forEach(cfg => {
+                const bezel = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.28, 0.3, 0.16, 20),
+                    new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.7 })
+                );
+                bezel.rotation.x = Math.PI / 2;
+                bezel.position.set(cfg.x, 0.72, 1.0);
+                g.add(bezel);
+
+                const dome = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.23, 20, 20),
+                    new THREE.MeshStandardMaterial({
+                        color: cfg.color,
+                        emissive: cfg.color,
+                        emissiveIntensity: 0.08,
+                        roughness: 0.2
+                    })
+                );
+                dome.position.set(cfg.x, 0.72, 1.06);
+                g.add(dome);
+                meshes[cfg.key] = dome;
+            });
+
+            // Pushbutton PB-START (Green NO)
+            const startBezel = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.42, 0.46, 0.22, 24),
+                new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 })
+            );
+            startBezel.rotation.x = Math.PI / 2;
+            startBezel.position.set(-0.75, -0.45, 1.02);
+            g.add(startBezel);
+
+            const startCap = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.32, 0.32, 0.25, 24),
+                new THREE.MeshStandardMaterial({ color: 0x10b981, emissive: 0x10b981, emissiveIntensity: 0.25 })
+            );
+            startCap.rotation.x = Math.PI / 2;
+            startCap.position.set(-0.75, -0.45, 1.12);
+            g.add(startCap);
+            meshes.pbStartCap = startCap;
+
+            registerInteractable(startCap, {
+                title: 'PB-START (기동 푸시버튼 - a접점)',
+                badge: 'Y기동 개시',
+                desc: '누르면 MC-M(주접촉기), 타이머(T), MC-Y(스타 접촉기)가 동시에 여자되어 Y결선(상전압 220V, 기동전류 1/3)으로 기동을 시작합니다.',
+                onClick: () => pressStartButton()
+            });
+
+            // Pushbutton PB-STOP (Red NC)
+            const stopBezel = startBezel.clone();
+            stopBezel.position.set(0.75, -0.45, 1.02);
+            g.add(stopBezel);
+
+            const stopCap = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.32, 0.32, 0.25, 24),
+                new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 0.25 })
+            );
+            stopCap.rotation.x = Math.PI / 2;
+            stopCap.position.set(0.75, -0.45, 1.12);
+            g.add(stopCap);
+            meshes.pbStopCap = stopCap;
+
+            registerInteractable(stopCap, {
+                title: 'PB-STOP (정지 푸시버튼 - b접점)',
+                badge: '자기유지 해제',
+                desc: '누르면 제어회로의 자기유지(MC-M a접점)가 해제되어 전동기가 안전하게 정지합니다.',
+                onClick: () => pressStopButton()
+            });
+
+            add3DTag('PB-START / STOP', '기동·정지 조작부', new THREE.Vector3(x, y + 1.75, z + 1.0), 'border-emerald-500/60 text-emerald-300');
+            scene.add(g);
+        }
+
+        // 4.8 3-Phase Squirrel-Cage Induction Motor & Open 6-Lead Terminal Box (U1, V1, W1 / W2, U2, V2)
+        function buildThreePhaseMotorAnd6TerminalBox(x, y, z) {
+            const g = new THREE.Group();
+            g.position.set(x, y, z);
+
+            const castIronMat = new THREE.MeshStandardMaterial({ color: 0x1e3a5f, roughness: 0.45, metalness: 0.55 });
+
+            // Stator Frame Cylinder
+            const stator = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 4.2, 32), castIronMat);
+            stator.rotation.z = Math.PI / 2;
+            stator.castShadow = true;
+            g.add(stator);
+
+            // Radial Cooling Fins along Stator Body
+            for (let i = 0; i < 16; i++) {
+                const angle = (i / 16) * Math.PI * 2;
+                const fin = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.12, 0.35), castIronMat);
+                fin.position.set(0, Math.cos(angle) * 2.15, Math.sin(angle) * 2.15);
+                fin.rotation.x = angle;
+                g.add(fin);
+            }
+
+            // End Bell Shields
+            const endBellL = new THREE.Mesh(new THREE.CylinderGeometry(1.9, 2.08, 0.5, 32), castIronMat);
+            endBellL.rotation.z = Math.PI / 2;
+            endBellL.position.x = -2.25;
+            g.add(endBellL);
+
+            const endBellR = endBellL.clone();
+            endBellR.position.x = 2.25;
+            g.add(endBellR);
+
+            // Rotating Shaft + Cooling Fan Blades + Load Flywheel Disk
+            const shaftGroup = new THREE.Group();
+            const shaftMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.15 });
+            const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 6.4, 24), shaftMat);
+            shaft.rotation.z = Math.PI / 2;
+            shaft.position.x = 0.6;
+            shaftGroup.add(shaft);
+
+            // Keyway & Coupling Disc with visual high-contrast stripes so rotation RPM is unmistakable
+            const disc = new THREE.Mesh(
+                new THREE.CylinderGeometry(1.35, 1.35, 0.35, 24),
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.5 })
+            );
+            disc.rotation.z = Math.PI / 2;
+            disc.position.x = 3.45;
+            shaftGroup.add(disc);
+
+            for (let b = 0; b < 6; b++) {
+                const vane = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.4, 1.15, 0.18),
+                    new THREE.MeshStandardMaterial({ color: b % 2 === 0 ? 0xf59e0b : 0x38bdf8 })
+                );
+                vane.rotation.x = (b / 6) * Math.PI * 2;
+                vane.position.x = 3.5;
+                shaftGroup.add(vane);
+            }
+            g.add(shaftGroup);
+            meshes.motorShaftGroup = shaftGroup;
+
+            // ================= OPEN 6-TERMINAL BLOCK BOX ON TOP OF MOTOR =================
+            const tBox = new THREE.Group();
+            tBox.position.set(-0.3, 2.55, 0.5);
+
+            const boxHousing = new THREE.Mesh(
+                new THREE.BoxGeometry(2.8, 1.85, 1.1),
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 })
+            );
+            tBox.add(boxHousing);
+
+            // Ceramic Insulator Terminal Block
+            const ceramic = new THREE.Mesh(
+                new THREE.BoxGeometry(2.3, 1.35, 0.35),
+                new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.35 })
+            );
+            ceramic.position.z = 0.45;
+            tBox.add(ceramic);
+
+            // Faceplate Label for U1, V1, W1 (Top Row) and W2, U2, V2 (Bottom Row)
+            const termTex = createLabelTexture((ctx, w, h) => {
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(0, 0, w, h);
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 24px monospace';
+                ctx.fillText('U1     V1     W1', 26, 52);
+                ctx.fillText('W2     U2     V2', 26, 225);
+                ctx.strokeStyle = '#475569';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(8, 8, w - 16, h - 16);
+            });
+            const termFace = new THREE.Mesh(
+                new THREE.PlaneGeometry(2.25, 1.3),
+                new THREE.MeshBasicMaterial({ map: termTex })
+            );
+            termFace.position.z = 0.64;
+            tBox.add(termFace);
+
+            // 6 Brass Terminal Studs: Top [U1, V1, W1], Bottom [W2, U2, V2]
+            // Notice standard IEC motor block order: W2 is directly below U1, U2 below V1, V2 below W1!
+            const studMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.85, roughness: 0.2 });
+            const topNames = ['U1', 'V1', 'W1'];
+            const botNames = ['W2', 'U2', 'V2'];
+
+            [-0.7, 0, 0.7].forEach((sx, idx) => {
+                // Top Row Stud (U1, V1, W1)
+                const studTop = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.28, 16), studMat);
+                studTop.rotation.x = Math.PI / 2;
+                studTop.position.set(sx, 0.32, 0.72);
+                tBox.add(studTop);
+
+                registerInteractable(studTop, {
+                    title: `전동기 고정자 시작단자 ${topNames[idx]}`,
+                    badge: 'MC-M 연결',
+                    desc: `3상 고정자 권선의 시작단(${topNames[idx]})입니다. 주 접촉기(MC-M) 출력단에서 전원을 공급받습니다.`,
+                    terminalId: topNames[idx],
+                    onClick: () => handleTerminalClick(topNames[idx])
+                });
+
+                // Bottom Row Stud (W2, U2, V2)
+                const studBot = studTop.clone();
+                studBot.position.set(sx, -0.32, 0.72);
+                tBox.add(studBot);
+
+                registerInteractable(studBot, {
+                    title: `전동기 고정자 끝단자 ${botNames[idx]}`,
+                    badge: 'Y단락 / Δ루프',
+                    desc: `3상 고정자 권선의 끝단(${botNames[idx]})입니다. Y기동 시에는 MC-Y에서 3상 단락(중성점 형성)되고, Δ운전 시에는 ${topNames[idx]}-${botNames[idx]} 쌍으로 380V 환상 루프를 형성합니다.`,
+                    terminalId: botNames[idx],
+                    onClick: () => handleTerminalClick(botNames[idx])
+                });
+
+                // Glowing internal winding indicator bar between U1-U2, V1-V2, W1-W2
+                const barMat = new THREE.MeshStandardMaterial({
+                    color: 0x334155,
+                    emissive: 0x38bdf8,
+                    emissiveIntensity: 0
+                });
+                const windingBar = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.42, 0.08), barMat);
+                windingBar.position.set(sx, 0, 0.68);
+                tBox.add(windingBar);
+                meshes.windingBarsU1V1W1.push(windingBar);
+            });
+
+            g.add(tBox);
+
+            registerInteractable(stator, {
+                title: '3상 농형 유도전동기 (380V 30kW 4극 6리드형)',
+                badge: '6단자 인출형',
+                desc: '고정자 3상 권선의 양 끝단(U1·V1·W1, W2·U2·V2) 6개 리드가 단자함으로 인출되어 외부 MC 조합에 의해 Y기동(220V) 및 Δ운전(380V)으로 전환됩니다.',
+                onClick: () => setCameraPreset('MOTOR_TERM')
+            });
+
+            add3DTag('3Φ INDUCTION MOTOR', 'U1·V1·W1 / W2·U2·V2 6단자함', new THREE.Vector3(x - 0.3, y + 4.1, z + 0.8), 'border-emerald-500/60 text-emerald-300');
+            scene.add(g);
+        }
+
+        // 4.9 3D Power Cables & Animated Current Flow Particles
+        function create3DCable(points, radius, colorHex, wireKey = null) {
+            const curve = new THREE.CatmullRomCurve3(points);
+            const geo = new THREE.TubeGeometry(curve, 36, radius, 10, false);
+            const mat = new THREE.MeshStandardMaterial({
+                color: colorHex,
+                roughness: 0.4,
+                metalness: 0.2
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            scene.add(mesh);
+            if (wireKey) {
+                practiceWireMeshes[wireKey] = mesh;
+            }
+            return { mesh, curve };
+        }
+
+        const wireCurves = {
+            feeder: [],
+            u1v1w1: [],
+            deltaLoop: [],
+            starBridge: []
+        };
+
+        function buildPowerBusbarsAnd3DWiring() {
+            const phaseColors = [0xef4444, 0x1e293b, 0x3b82f6]; // R(Red), S(Black), T(Blue)
+            const u1v1w1Keys = ['U1', 'V1', 'W1'];
+            const deltaKeys  = ['W2_D', 'U2_D', 'V2_D'];
+            const starKeys   = ['W2_Y', 'U2_Y', 'V2_Y'];
+
+            [-0.75, 0, 0.75].forEach((offset, idx) => {
+                const col = phaseColors[idx];
+                const zOff = 0.95 + idx * 0.08;
+
+                // 1. MCCB bottom -> EOCR -> MC-M top & MC-D top
+                const cFeeder = create3DCable([
+                    new THREE.Vector3(-5.5 + offset, 2.25, 0.95),
+                    new THREE.Vector3(-5.5 + offset, 1.45, zOff),
+                    new THREE.Vector3(-1.5 + offset, 1.45, zOff),
+                    new THREE.Vector3(-1.5 + offset, 4.7, 0.55),
+                    new THREE.Vector3(-1.5 + offset, 1.4, zOff),
+                    new THREE.Vector3(-5.6 + offset, 1.4, zOff),
+                    new THREE.Vector3(-5.6 + offset, 0.38, 1.08)
+                ], 0.065, col);
+                wireCurves.feeder.push(cFeeder.curve);
+
+                // Branch to MC-D top
+                create3DCable([
+                    new THREE.Vector3(-3.6 + offset, 1.4, zOff),
+                    new THREE.Vector3(-1.8 + offset, 1.4, zOff),
+                    new THREE.Vector3(-1.8 + offset, 0.38, 1.08)
+                ], 0.06, col);
+
+                // 2. MC-M bottom -> Motor U1, V1, W1 (Top Row of 6-Terminal Box)
+                const cMotorTop = create3DCable([
+                    new THREE.Vector3(-5.6 + offset, -2.38, 1.08),
+                    new THREE.Vector3(-5.6 + offset, -3.45 - idx * 0.12, zOff),
+                    new THREE.Vector3(7.2, -3.45 - idx * 0.12, zOff),
+                    new THREE.Vector3(7.6, 0.65, 1.1),
+                    new THREE.Vector3(9.3 + offset * 0.93, 0.67, 1.22)
+                ], 0.065, col, u1v1w1Keys[idx]);
+                wireCurves.u1v1w1.push({ curve: cMotorTop.curve, key: u1v1w1Keys[idx] });
+
+                // 3. MC-D bottom -> Motor W2, U2, V2 (Bottom Row of 6-Terminal Box)
+                const cDelta = create3DCable([
+                    new THREE.Vector3(-1.8 + offset, -2.38, 1.08),
+                    new THREE.Vector3(-1.8 + offset, -3.85 - idx * 0.12, zOff + 0.12),
+                    new THREE.Vector3(7.5, -3.85 - idx * 0.12, zOff + 0.12),
+                    new THREE.Vector3(7.9, 0.02, 1.15),
+                    new THREE.Vector3(9.3 + offset * 0.93, 0.03, 1.22)
+                ], 0.06, col, deltaKeys[idx]);
+                wireCurves.deltaLoop.push({ curve: cDelta.curve, key: deltaKeys[idx] });
+
+                // 4. MC-Y bottom -> Jumper to W2, U2, V2 for Star Shorting
+                const cStar = create3DCable([
+                    new THREE.Vector3(2.0 + offset, -2.38, 1.08),
+                    new THREE.Vector3(2.0 + offset, -3.85 - idx * 0.12, zOff + 0.15),
+                    new THREE.Vector3(-1.8 + offset, -3.85 - idx * 0.12, zOff + 0.15)
+                ], 0.055, 0xeab308, starKeys[idx]);
+                wireCurves.starBridge.push({ curve: cStar.curve, key: starKeys[idx] });
+            });
+        }
+
+        function buildCurrentFlowParticles() {
+            const sphereGeo = new THREE.SphereGeometry(0.13, 10, 10);
+
+            const addParticlesForCurves = (list, groupType, colorHex) => {
+                list.forEach(item => {
+                    const curve = item.curve || item;
+                    const key = item.key || null;
+                    for (let i = 0; i < 4; i++) {
+                        const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+                        const p = new THREE.Mesh(sphereGeo, mat);
+                        p.visible = false;
+                        scene.add(p);
+                        currentParticles.push({
+                            mesh: p,
+                            curve,
+                            groupType,
+                            wireKey: key,
+                            t: i / 4
+                        });
+                    }
+                });
+            };
+
+            addParticlesForCurves(wireCurves.feeder, 'FEEDER', 0x38bdf8);
+            addParticlesForCurves(wireCurves.u1v1w1, 'U1V1W1', 0x10b981);
+            addParticlesForCurves(wireCurves.deltaLoop, 'DELTA', 0xef4444);
+            addParticlesForCurves(wireCurves.starBridge, 'STAR', 0xfacc15);
+        }
+
+        /***********************************************************************
+         * 5. STAR-DELTA (Y-Δ) ELECTRICAL CONTROL LOGIC & INTERACTIONS
+         ***********************************************************************/
+        function showToast(msg, iconClass = 'fa-circle-info text-amber-400') {
+            const banner = document.getElementById('toast-banner');
+            const icon = document.getElementById('toast-icon');
+            const text = document.getElementById('toast-text');
+            icon.className = `fa-solid ${iconClass} text-sm`;
+            text.textContent = msg;
+            banner.classList.remove('opacity-0', '-translate-y-2');
+            banner.classList.add('opacity-100', 'translate-y-0');
+            clearTimeout(banner._timer);
+            banner._timer = setTimeout(() => {
+                banner.classList.remove('opacity-100', 'translate-y-0');
+                banner.classList.add('opacity-0', '-translate-y-2');
+            }, 3400);
+        }
+
+        function toggleMCCB() {
+            SIM.mccbOn = !SIM.mccbOn;
+            playContactorClack(SIM.mccbOn ? 'CLOSE' : 'OPEN');
+            if (!SIM.mccbOn) {
+                stopAllContactors();
+                SIM.state = 'OFF';
+                showToast('MCCB 배선용 차단기가 OFF(차단) 되었습니다.', 'fa-power-off text-slate-400');
+            } else {
+                SIM.state = SIM.eocrTripped ? 'TRIP' : 'READY';
+                showToast('MCCB 주전원(3상 380V)이 투입되었습니다. PB-START를 눌러 기동하세요.', 'fa-bolt text-emerald-400');
+            }
+            updateUIAndSchematic();
+        }
+
+        function pressStartButton() {
+            SIM.pbStartPressed = 0.25;
+            if (!SIM.mccbOn) {
+                showToast('먼저 MCCB 차단기를 ON(투입) 해주세요!', 'fa-triangle-exclamation text-amber-400');
+                return;
+            }
+            if (SIM.eocrTripped) {
+                showToast('EOCR 과부하 트립 상태입니다! [EOCR 리셋] 버튼을 먼저 눌러주세요.', 'fa-triangle-exclamation text-rose-400');
+                return;
+            }
+            if (SIM.completedWires.size < SIM.totalRequiredWires) {
+                showToast(`미완성된 주회로 결선이 있습니다 (${SIM.completedWires.size}/${SIM.totalRequiredWires}). 결선을 먼저 완료하세요!`, 'fa-bezier-curve text-amber-400');
+                return;
+            }
+            if (SIM.state === 'STAR' || SIM.state === 'DELTA') {
+                showToast('이미 전동기가 운전 중입니다.', 'fa-circle-check text-emerald-400');
+                return;
+            }
+
+            // Energize MC-M (Main), Timer T, and MC-Y (Star)
+            SIM.state = 'STAR';
+            SIM.mcM = true;
+            SIM.mcY = true;
+            SIM.mcD = false;
+            SIM.timerEnergized = true;
+            SIM.timerElapsed = 0.0;
+            playContactorClack('CLOSE');
+            showToast(`Y(스타) 기동 개시! 상전압 Vp = 220V (380V/√3), 기동전류·토크 1/3로 제한 (${SIM.timerTarget.toFixed(1)}초 후 Δ 전환)`, 'fa-play text-amber-400');
+            updateUIAndSchematic();
+        }
+
+        function pressStopButton() {
+            SIM.pbStopPressed = 0.25;
+            playContactorClack('OPEN');
+            stopAllContactors();
+            if (SIM.mccbOn && !SIM.eocrTripped) {
+                SIM.state = 'READY';
+                showToast('PB-STOP 입력: 자기유지 회로가 해제되어 전동기가 감속 정지합니다.', 'fa-stop text-rose-400');
+            }
+            updateUIAndSchematic();
+        }
+
+        function stopAllContactors() {
+            SIM.mcM = false;
+            SIM.mcY = false;
+            SIM.mcD = false;
+            SIM.timerEnergized = false;
+            SIM.timerElapsed = 0.0;
+        }
+
+        function triggerEOCRTripTest() {
+            if (!SIM.mccbOn) {
+                showToast('MCCB 전원이 투입된 상태에서 EOCR 테스트가 가능합니다.', 'fa-circle-info text-sky-400');
+                return;
+            }
+            SIM.eocrTripped = true;
+            stopAllContactors();
+            SIM.state = 'TRIP';
+            SIM.thermalAccumulator = 0;
+            playContactorClack('TRIP');
+            showToast('⚡ EOCR 과전류 트립 동작! 95-96(b접점) 개방으로 전동기 비상 차단 및 97-98(OL) 경보 점멸', 'fa-triangle-exclamation text-rose-400');
+            updateUIAndSchematic();
+        }
+
+        function resetEOCR() {
+            if (!SIM.eocrTripped) {
+                showToast('현재 EOCR은 정상(복귀) 상태입니다.', 'fa-check text-emerald-400');
+                return;
+            }
+            SIM.eocrTripped = false;
+            SIM.thermalAccumulator = 0;
+            SIM.state = SIM.mccbOn ? 'READY' : 'OFF';
+            playContactorClack('CLOSE');
+            showToast('EOCR 트립이 정상 복귀(RESET) 되었습니다. 재기동이 가능합니다.', 'fa-rotate-right text-sky-400');
+            updateUIAndSchematic();
+        }
+
+        function testInterlockSafety() {
+            if (SIM.state === 'STAR') {
+                showToast('🛡️ [인터록 정상 작동] 현재 MC-Y(스타)가 여자되어 있어 MC-Y(b접점) 개방 및 기계적 인터록 레버가 MC-D 강제 투입을 차단했습니다!', 'fa-shield-halved text-emerald-400');
+            } else if (SIM.state === 'DELTA') {
+                showToast('🛡️ [인터록 정상 작동] 현재 MC-D(델타)가 여자되어 있어 MC-D(b접점) 개방 및 기계적 인터록 레버가 MC-Y 강제 투입을 차단했습니다!', 'fa-shield-halved text-emerald-400');
+            } else {
+                showToast('기동(Y 또는 Δ) 중에 이 버튼을 누르거나 전자접촉기를 클릭하면 동시투입 방지 인터록을 검증할 수 있습니다.', 'fa-shield-halved text-amber-400');
+            }
+        }
+
+        function inspectContactorAction(id) {
+            if (id === 'MC-D' && SIM.mcY) {
+                testInterlockSafety();
+            } else if (id === 'MC-Y' && SIM.mcD) {
+                testInterlockSafety();
+            } else if (id === 'MC-M') {
+                if (SIM.state === 'READY') pressStartButton();
+                else if (SIM.mcM) pressStopButton();
+            } else {
+                showToast(`${id}: 제어회로 시퀀스 및 인터록 조건에 의해 제어됩니다.`, 'fa-circle-info text-sky-400');
+            }
+        }
+
+        function updateTimerSetting(val) {
+            SIM.timerTarget = parseFloat(val);
+            document.getElementById('label-timer-set').textContent = `${SIM.timerTarget.toFixed(1)} 초`;
+        }
+
+        function updateLoadSetting(val) {
+            SIM.loadTorque = parseFloat(val);
+            document.getElementById('label-load-set').textContent = `${SIM.loadTorque.toFixed(0)} %`;
+        }
+
+        /***********************************************************************
+         * 6. 3D INTERACTIVE WIRING PRACTICE MODE
+         ***********************************************************************/
+        function setWorkMode(mode) {
+            SIM.workMode = mode;
+            const simBtn = document.getElementById('mode-sim-btn');
+            const wireBtn = document.getElementById('mode-wire-btn');
+            const wireBar = document.getElementById('wiring-practice-bar');
+
+            if (mode === 'WIRE') {
+                wireBtn.className = 'hud-btn px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-500 text-slate-950';
+                simBtn.className = 'hud-btn px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-300 hover:text-white';
+                wireBar.classList.remove('hidden');
+                showToast('3D 결선 실습 모드입니다. [결선 초기화]를 눌러 직접 단자를 연결해보세요.', 'fa-bezier-curve text-amber-400');
+            } else {
+                simBtn.className = 'hud-btn px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-500 text-slate-950';
+                wireBtn.className = 'hud-btn px-2.5 py-1 rounded-md text-[11px] font-semibold text-slate-300 hover:text-white';
+                wireBar.classList.add('hidden');
+            }
+        }
+
+        function clearPracticeWires() {
+            if (SIM.mcM) pressStopButton();
+            SIM.completedWires.clear();
+            SIM.selectedTerminal = null;
+            Object.values(practiceWireMeshes).forEach(m => m.visible = false);
+            updateWiringProgressUI();
+            showToast('주회로 결선이 초기화되었습니다. MC-M / MC-D / MC-Y 하부 단자와 전동기 6단자(U1~V2)를 클릭해 연결하세요.', 'fa-plug text-amber-400');
+        }
+
+        function autoCompleteWires() {
+            ['U1', 'V1', 'W1', 'W2_D', 'U2_D', 'V2_D', 'W2_Y', 'U2_Y', 'V2_Y'].forEach(k => {
+                SIM.completedWires.add(k);
+                if (practiceWireMeshes[k]) practiceWireMeshes[k].visible = true;
+            });
+            SIM.selectedTerminal = null;
+            updateWiringProgressUI();
+            playContactorClack('CLOSE');
+            showToast('표준 Y-Δ 6리드 주회로 결선 9가닥이 모두 완성되었습니다!', 'fa-check-double text-emerald-400');
+        }
+
+        function handleTerminalClick(termId) {
+            if (SIM.workMode !== 'WIRE') {
+                showToast(`단자 [${termId}] 점검 완료. 직접 결선 실습을 하려면 상단 [3D 결선 실습] 탭을 선택하세요.`, 'fa-screwdriver-wrench text-sky-400');
+                return;
+            }
+            if (!SIM.selectedTerminal) {
+                SIM.selectedTerminal = termId;
+                document.getElementById('wire-guide-text').textContent = `선택된 시작 단자: [${termId}] → 연결할 상대 단자를 클릭하세요.`;
+                return;
+            }
+            const a = SIM.selectedTerminal;
+            const b = termId;
+            SIM.selectedTerminal = null;
+
+            const pairMap = {
+                'MC-M_BOT_0:U1': 'U1', 'U1:MC-M_BOT_0': 'U1',
+                'MC-M_BOT_1:V1': 'V1', 'V1:MC-M_BOT_1': 'V1',
+                'MC-M_BOT_2:W1': 'W1', 'W1:MC-M_BOT_2': 'W1',
+                'MC-D_BOT_0:W2': 'W2_D', 'W2:MC-D_BOT_0': 'W2_D',
+                'MC-D_BOT_1:U2': 'U2_D', 'U2:MC-D_BOT_1': 'U2_D',
+                'MC-D_BOT_2:V2': 'V2_D', 'V2:MC-D_BOT_2': 'V2_D',
+                'MC-Y_BOT_0:W2': 'W2_Y', 'W2:MC-Y_BOT_0': 'W2_Y',
+                'MC-Y_BOT_1:U2': 'U2_Y', 'U2:MC-Y_BOT_1': 'U2_Y',
+                'MC-Y_BOT_2:V2': 'V2_Y', 'V2:MC-Y_BOT_2': 'V2_Y'
+            };
+
+            const matchedKey = pairMap[`${a}:${b}`];
+            if (matchedKey) {
+                SIM.completedWires.add(matchedKey);
+                if (practiceWireMeshes[matchedKey]) practiceWireMeshes[matchedKey].visible = true;
+                playContactorClack('CLOSE');
+                updateWiringProgressUI();
+                showToast(`결선 성공: [${a} ↔ ${b}] 연결 완료!`, 'fa-check text-emerald-400');
+            } else {
+                showToast(`오결선 경고: [${a}] 단자와 [${b}] 단자는 표준 Y-Δ 주회로 결선 쌍이 아닙니다!`, 'fa-xmark text-rose-400');
+                document.getElementById('wire-guide-text').textContent = `오결선 방지됨: [${a} ↔ ${b}]. 올바른 상 순서(U1-W2, V1-U2, W1-V2)를 확인하세요.`;
+            }
+        }
+
+        function updateWiringProgressUI() {
+            const count = SIM.completedWires.size;
+            document.getElementById('wire-progress-badge').textContent = `결선 ${count} / ${SIM.totalRequiredWires} 완료`;
+            if (count === SIM.totalRequiredWires) {
+                document.getElementById('wire-guide-text').textContent = '모든 Y-Δ 결선이 완료되었습니다! PB-START를 눌러 시운전하세요.';
+            }
+        }
+
+        /***********************************************************************
+         * 7. SYNCHRONIZE 2D SVG SCHEMATIC & HUD INDICATORS
+         ***********************************************************************/
+        function updateUIAndSchematic() {
+            // State Pill
+            const badge = document.getElementById('state-badge');
+            const dot = document.getElementById('state-dot');
+            const text = document.getElementById('state-text');
+
+            const stateStyles = {
+                'OFF':        { bg: 'bg-slate-800 text-slate-400 border-slate-700', dot: 'bg-slate-500', label: '차단기 OFF (전원차단)' },
+                'READY':      { bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50', dot: 'bg-emerald-400', label: '정지 / 기동 대기 (GL)' },
+                'STAR':       { bg: 'bg-amber-950/90 text-amber-300 border-amber-500/60', dot: 'bg-amber-400 animate-ping', label: 'Y (스타) 감압 기동중 (220V)' },
+                'OPEN_TRANS': { bg: 'bg-sky-950/90 text-sky-300 border-sky-500/60', dot: 'bg-sky-400', label: 'Y → Δ 절체중 (인터록 보호)' },
+                'DELTA':      { bg: 'bg-rose-950/90 text-rose-300 border-rose-500/60', dot: 'bg-rose-500 animate-pulse', label: 'Δ (델타) 정격 운전중 (380V)' },
+                'TRIP':       { bg: 'bg-orange-950/95 text-orange-300 border-orange-500', dot: 'bg-orange-500 animate-ping', label: 'EOCR 과전류 트립 (비상정지)' }
+            };
+            const st = stateStyles[SIM.state] || stateStyles['READY'];
+            badge.className = `px-2.5 py-1 rounded-md text-xs font-bold mono border flex items-center gap-1.5 ${st.bg}`;
+            dot.className = `w-2 h-2 rounded-full ${st.dot}`;
+            text.textContent = st.label;
+
+            // MCCB Footer Button
+            const mccbBtn = document.getElementById('btn-mccb');
+            const mccbTxt = document.getElementById('btn-mccb-text');
+            if (SIM.mccbOn) {
+                mccbBtn.className = 'hud-btn px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg';
+                mccbTxt.textContent = 'MCCB 전원 ON (투입됨)';
+            } else {
+                mccbBtn.className = 'hud-btn px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-xs flex items-center gap-2 shadow';
+                mccbTxt.textContent = 'MCCB 전원 OFF (차단됨)';
+            }
+
+            // Contactor Matrix Cards
+            const setCard = (id, active, activeText, color) => {
+                const el = document.getElementById(id);
+                if (active) {
+                    el.className = `p-1.5 rounded-lg bg-${color}-500/20 border border-${color}-500/60`;
+                    el.children[1].className = `text-xs font-bold mono text-${color}-300 mt-0.5`;
+                    el.children[1].textContent = activeText;
+                } else {
+                    el.className = 'p-1.5 rounded-lg bg-slate-900 border border-slate-800';
+                    el.children[1].className = 'text-xs font-bold mono text-slate-500 mt-0.5';
+                    el.children[1].textContent = 'OFF';
+                }
+            };
+            setCard('ind-mcm', SIM.mcM, 'ON (여자)', 'emerald');
+            setCard('ind-mcy', SIM.mcY, 'ON (Y단락)', 'amber');
+            setCard('ind-mcd', SIM.mcD, 'ON (Δ운전)', 'rose');
+            setCard('ind-timer', SIM.timerEnergized, SIM.mcD ? '한시동작' : '계시중', 'sky');
+
+            // Pilot Lamps on Footer HUD
+            const setLamp = (id, on, activeClass, offClass) => {
+                document.getElementById(id).className = `w-3.5 h-3.5 rounded-full border inline-block ${on ? activeClass : offClass}`;
+            };
+            setLamp('lamp-gl', SIM.mccbOn && !SIM.mcM && !SIM.eocrTripped, 'bg-emerald-400 border-emerald-200 shadow-[0_0_8px_#34d399]', 'bg-emerald-950 border-emerald-700');
+            setLamp('lamp-yl', SIM.mcY, 'bg-amber-400 border-amber-200 shadow-[0_0_8px_#fbbf24]', 'bg-amber-950 border-amber-700');
+            setLamp('lamp-rl', SIM.mcD, 'bg-rose-500 border-rose-200 shadow-[0_0_8px_#f43f5e]', 'bg-rose-950 border-rose-700');
+            setLamp('lamp-ol', SIM.eocrTripped, 'bg-orange-500 border-orange-200 shadow-[0_0_10px_#f97316] animate-pulse', 'bg-orange-950 border-orange-700');
+
+            // ================= 2D SVG SEQUENCE DIAGRAM SYNCHRONIZATION =================
+            // 1. MCCB blades
+            ['svg-mccb-1', 'svg-mccb-2', 'svg-mccb-3'].forEach((id, idx) => {
+                const x = 25 + idx * 20;
+                const el = document.getElementById(id);
+                el.setAttribute('x2', SIM.mccbOn ? x : x - 6);
+                el.setAttribute('stroke', SIM.mccbOn ? '#ef4444' : '#94a3b8');
+            });
+
+            // 2. Power wires highlighting
+            const setClass = (id, cls, cond) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (cond) el.classList.add(cls);
+                else el.classList.remove(cls);
+            };
+
+            setClass('svg-wire-mccb-out', 'wire-active', SIM.mccbOn);
+            setClass('svg-wire-u1v1w1', 'wire-power-d', SIM.mcM);
+            setClass('svg-wire-w2u2v2', SIM.mcD ? 'wire-power-d' : 'wire-power-y', SIM.mcY || SIM.mcD);
+            setClass('svg-wire-delta-loop', 'wire-power-d', SIM.mcD);
+            setClass('svg-wire-star-bridge', 'wire-power-y', SIM.mcY);
+
+            // 3. Control circuit contacts & coils
+            setClass('svg-ctrl-bus-r', 'wire-active', SIM.mccbOn);
+            document.getElementById('svg-eocr-nc').setAttribute('x2', SIM.eocrTripped ? '228' : '240');
+            document.getElementById('svg-mcm-hold').setAttribute('x2', SIM.mcM ? '275' : '267');
+
+            // Timer T-b (8-5) & T-a (8-6)
+            const timerDone = SIM.timerElapsed >= SIM.timerTarget;
+            document.getElementById('svg-contact-tb').setAttribute('x2', timerDone ? '304' : '314');
+            document.getElementById('svg-contact-ta').setAttribute('x2', timerDone ? '350' : '340');
+
+            // Interlock NC contacts MC-D(b) & MC-Y(b)
+            document.getElementById('svg-interlock-mcd').setAttribute('x2', SIM.mcD ? '304' : '314');
+            document.getElementById('svg-interlock-mcy').setAttribute('x2', SIM.mcY ? '340' : '350');
+
+            // Coils
+            setClass('svg-coil-mcm', 'coil-active-m', SIM.mcM);
+            setClass('svg-coil-t', 'coil-active-m', SIM.timerEnergized);
+            setClass('svg-coil-mcy', 'coil-active-y', SIM.mcY);
+            setClass('svg-coil-mcd', 'coil-active-d', SIM.mcD);
+            setClass('svg-box-mcm', 'coil-active-m', SIM.mcM);
+            setClass('svg-box-mcy', 'coil-active-y', SIM.mcY);
+            setClass('svg-box-mcd', 'coil-active-d', SIM.mcD);
+        }
+
+        /***********************************************************************
+         * 8. PHYSICS & ELECTRICAL SIMULATION STEP + OSCILLOSCOPE RENDERING
+         ***********************************************************************/
+        const chartCanvas = document.getElementById('telemetry-chart');
+        const chartCtx = chartCanvas.getContext('2d');
+
+        function stepSimulationPhysics(dt) {
+            // 1. Timer T & Open-Transition Y -> Delta Switchover Sequence
+            if (SIM.state === 'STAR') {
+                SIM.timerElapsed += dt;
+                if (SIM.timerElapsed >= SIM.timerTarget) {
+                    // Enter brief 50ms open-transition arc-clearing window before pulling in MC-D
+                    SIM.state = 'OPEN_TRANS';
+                    SIM.mcY = false;
+                    SIM.openTransitionTimer = 0.05;
+                    playContactorClack('OPEN');
+                    updateUIAndSchematic();
+                }
+            } else if (SIM.state === 'OPEN_TRANS') {
+                SIM.openTransitionTimer -= dt;
+                if (SIM.openTransitionTimer <= 0) {
+                    SIM.state = 'DELTA';
+                    SIM.mcD = true;
+                    SIM.deltaSwitchSpike = 85.0; // Realistic transient current spike on Y->Delta switch
+                    playContactorClack('CLOSE');
+                    showToast('🔄 타이머(T) 한시 동작 완료! MC-Y 개방 후 인터록을 거쳐 MC-D(델타 380V 전전압 운전)가 투입되었습니다.', 'fa-bolt text-rose-400');
+                    updateUIAndSchematic();
+                }
+            }
+
+            // 2. Calculate Phase Voltage, Motor Torque, Slip, RPM & Line Current
+            const slip = Math.max(0.015, (SIM.syncRpm - SIM.rpm) / SIM.syncRpm);
+
+            if (SIM.state === 'STAR') {
+                // In Star: V_phase = 380 / sqrt(3) = 220V. Starting current & torque are 1/3 of DOL!
+                SIM.phaseVoltage = 220.0;
+                const starInrush = (SIM.dolLockCurrent / 3.0) * Math.pow(slip, 0.55) + 19.0;
+                SIM.lineCurrent = starInrush + (SIM.loadTorque * 0.14);
+                // Available Star torque is ~ 1/3 of DOL breakdown torque
+                const availableStarTorque = 68.0 * (1.15 - slip * 0.35);
+                SIM.motorTorque = availableStarTorque;
+
+                const netAccel = availableStarTorque - (SIM.loadTorque * 0.55);
+                SIM.rpm = Math.min(1740, Math.max(0, SIM.rpm + netAccel * 11.5 * dt));
+
+            } else if (SIM.state === 'OPEN_TRANS') {
+                // Brief open transition during contactor changeover
+                SIM.phaseVoltage = 0.0;
+                SIM.lineCurrent = 0.0;
+                SIM.motorTorque = 0.0;
+                SIM.rpm = Math.max(0, SIM.rpm - 80 * dt);
+
+            } else if (SIM.state === 'DELTA') {
+                // In Delta: V_phase = V_line = 380V. Full torque & rated speed
+                SIM.phaseVoltage = 380.0;
+                SIM.deltaSwitchSpike = Math.max(0, SIM.deltaSwitchSpike - 240 * dt);
+                const steadyCurrent = 22.0 + (SIM.loadTorque / 100.0) * 38.0 + (slip * 160.0);
+                SIM.lineCurrent = steadyCurrent + SIM.deltaSwitchSpike;
+                SIM.motorTorque = Math.min(220, SIM.loadTorque + (1765 - SIM.rpm) * 0.8);
+
+                const targetDeltaRpm = 1785 - (SIM.loadTorque * 0.45);
+                SIM.rpm += (targetDeltaRpm - SIM.rpm) * 4.5 * dt;
+
+            } else {
+                // Motor de-energized (coasting down)
+                SIM.phaseVoltage = 0.0;
+                SIM.lineCurrent = 0.0;
+                SIM.motorTorque = 0.0;
+                SIM.rpm = Math.max(0, SIM.rpm - (260 + SIM.loadTorque * 2.2) * dt);
+            }
+
+            // 3. EOCR Overload Thermal Accumulation Check (Trips if Line Current > 62A sustained)
+            if (SIM.lineCurrent > 64.0 && SIM.state === 'DELTA') {
+                SIM.thermalAccumulator += ((SIM.lineCurrent - 60.0) / 25.0) * dt;
+                if (SIM.thermalAccumulator > 2.8) {
+                    triggerEOCRTripTest();
+                }
+            } else {
+                SIM.thermalAccumulator = Math.max(0, SIM.thermalAccumulator - 0.5 * dt);
+            }
+
+            // 4. Update Digital Multi-Meter DOM Readouts
+            document.getElementById('val-current').textContent = SIM.lineCurrent.toFixed(1);
+            document.getElementById('val-voltage').textContent = SIM.phaseVoltage.toFixed(0);
+            document.getElementById('val-rpm').textContent = Math.round(SIM.rpm);
+            document.getElementById('val-torque').textContent = SIM.motorTorque.toFixed(1);
+            document.getElementById('transition-timer- readout').textContent =
+                `T: ${Math.min(SIM.timerElapsed, SIM.timerTarget).toFixed(2)}s / ${SIM.timerTarget.toFixed(2)}s`;
+
+            const vMode = document.getElementById('kpi-voltage-mode');
+            if (SIM.state === 'STAR') vMode.textContent = 'Y결선 (380/√3)';
+            else if (SIM.state === 'DELTA') vMode.textContent = 'Δ결선 (전전압)';
+            else vMode.textContent = '대기 (0V)';
+
+            // 5. Push sample to Oscilloscope & Draw
+            SIM.history.push({
+                iL: SIM.lineCurrent,
+                rpm: SIM.rpm,
+                vp: SIM.phaseVoltage
+            });
+            if (SIM.history.length > 160) SIM.history.shift();
+            drawOscilloscope();
+            updateMotorAcoustics();
+        }
+
+        function drawOscilloscope() {
+            const w = chartCanvas.width;
+            const h = chartCanvas.height;
+            chartCtx.clearRect(0, 0, w, h);
+
+            // Subtle Grid
+            chartCtx.strokeStyle = 'rgba(51, 65, 85, 0.35)';
+            chartCtx.lineWidth = 1;
+            for (let y = 20; y < h; y += 25) {
+                chartCtx.beginPath();
+                chartCtx.moveTo(0, y);
+                chartCtx.lineTo(w, y);
+                chartCtx.stroke();
+            }
+
+            // EOCR 62A Threshold Reference Dashed Line
+            const tripY = h - (62 / 180) * (h - 14) - 6;
+            chartCtx.strokeStyle = 'rgba(244, 63, 94, 0.45)';
+            chartCtx.setLineDash([4, 4]);
+            chartCtx.beginPath();
+            chartCtx.moveTo(0, tripY);
+            chartCtx.lineTo(w, tripY);
+            chartCtx.stroke();
+            chartCtx.setLineDash([]);
+
+            const plotLine = (key, maxVal, color) => {
+                chartCtx.strokeStyle = color;
+                chartCtx.lineWidth = 2;
+                chartCtx.beginPath();
+                SIM.history.forEach((pt, idx) => {
+                    const x = (idx / (SIM.history.length - 1)) * w;
+                    const norm = Math.min(1, pt[key] / maxVal);
+                    const y = h - norm * (h - 14) - 6;
+                    if (idx === 0) chartCtx.moveTo(x, y);
+                    else chartCtx.lineTo(x, y);
+                });
+                chartCtx.stroke();
+            };
+
+            plotLine('vp', 420, '#38bdf8');   // Phase Voltage (220V -> 380V step)
+            plotLine('rpm', 1900, '#10b981'); // Motor Speed RPM
+            plotLine('iL', 180, '#f59e0b');   // Line Current A
+        }
+
+        /***********************************************************************
+         * 9. UPDATE 3D HARDWARE ANIMATIONS & FLOATING LABELS
+         ***********************************************************************/
+        function update3DHardwareVisuals(dt, elapsed) {
+            // 1. Smooth Camera Orbit Interpolation
+            camCtrl.theta += (camCtrl.desiredTheta - camCtrl.theta) * 0.12;
+            camCtrl.phi += (camCtrl.desiredPhi - camCtrl.phi) * 0.12;
+            camCtrl.radius += (camCtrl.desiredRadius - camCtrl.radius) * 0.12;
+            camCtrl.target.lerp(camCtrl.desiredTarget, 0.12);
+
+            camera.position.x = camCtrl.target.x + camCtrl.radius * Math.sin(camCtrl.phi) * Math.sin(camCtrl.theta);
+            camera.position.y = camCtrl.target.y + camCtrl.radius * Math.cos(camCtrl.phi);
+            camera.position.z = camCtrl.target.z + camCtrl.radius * Math.sin(camCtrl.phi) * Math.cos(camCtrl.theta);
+            camera.lookAt(camCtrl.target);
+
+            // 2. MCCB Lever Angle
+            if (meshes.mccbLever) {
+                const targetRotX = SIM.mccbOn ? -0.42 : 0.45;
+                meshes.mccbLever.rotation.x += (targetRotX - meshes.mccbLever.rotation.x) * 0.2;
+            }
+
+            // 3. Magnetic Contactor Plungers (Pull-in physically when energized!)
+            const updatePlunger = (mesh, energized) => {
+                if (!mesh) return;
+                const targetZ = energized ? 1.80 : 1.96;
+                mesh.position.z += (targetZ - mesh.position.z) * 0.25;
+            };
+            updatePlunger(meshes.plungerM, SIM.mcM);
+            updatePlunger(meshes.plungerD, SIM.mcD);
+            updatePlunger(meshes.plungerY, SIM.mcY);
+
+            // 4. Mechanical Interlock Rocker Arm Tilt
+            if (meshes.interlockArm) {
+                const targetTilt = SIM.mcY ? 0.25 : SIM.mcD ? -0.25 : 0;
+                meshes.interlockArm.rotation.z += (targetTilt - meshes.interlockArm.rotation.z) * 0.2;
+            }
+
+            // 5. Timer Dial Pointer & LEDs
+            if (meshes.timerPointer) {
+                const norm = (SIM.timerTarget / 10.0);
+                meshes.timerPointer.rotation.z = (0.75 - norm * 1.5) * Math.PI * 0.7;
+            }
+            if (meshes.timerLedPwr) {
+                meshes.timerLedPwr.material.emissiveIntensity = SIM.timerEnergized ? 1.2 : 0;
+            }
+            if (meshes.timerLedOut) {
+                meshes.timerLedOut.material.emissiveIntensity = SIM.mcD ? 1.4 : (SIM.state === 'STAR' ? (Math.sin(elapsed * 12) > 0 ? 0.9 : 0.1) : 0);
+            }
+
+            // 6. EOCR LEDs
+            if (meshes.eocrLedRun) {
+                meshes.eocrLedRun.material.emissiveIntensity = SIM.mccbOn && !SIM.eocrTripped ? 1.0 : 0.05;
+            }
+            if (meshes.eocrLedTrip) {
+                meshes.eocrLedTrip.material.emissiveIntensity = SIM.eocrTripped ? (Math.sin(elapsed * 14) > 0 ? 1.6 : 0.2) : 0;
+            }
+
+            // 7. Pushbutton Spring Return & Pilot Lamps
+            if (SIM.pbStartPressed > 0) SIM.pbStartPressed = Math.max(0, SIM.pbStartPressed - dt);
+            if (SIM.pbStopPressed > 0) SIM.pbStopPressed = Math.max(0, SIM.pbStopPressed - dt);
+            if (meshes.pbStartCap) meshes.pbStartCap.position.z = SIM.pbStartPressed > 0 ? 1.03 : 1.12;
+            if (meshes.pbStopCap) meshes.pbStopCap.position.z = SIM.pbStopPressed > 0 ? 1.03 : 1.12;
+
+            if (meshes.lampGL) meshes.lampGL.material.emissiveIntensity = (SIM.mccbOn && !SIM.mcM && !SIM.eocrTripped) ? 1.25 : 0.06;
+            if (meshes.lampYL) meshes.lampYL.material.emissiveIntensity = SIM.mcY ? 1.35 : 0.06;
+            if (meshes.lampRL) meshes.lampRL.material.emissiveIntensity = SIM.mcD ? 1.35 : 0.06;
+            if (meshes.lampOL) meshes.lampOL.material.emissiveIntensity = SIM.eocrTripped ? (Math.sin(elapsed * 12) > 0 ? 1.5 : 0.1) : 0.06;
+
+            // 8. 3-Phase Induction Motor Shaft Rotation & 6-Terminal Winding Excitation Glow
+            if (meshes.motorShaftGroup && SIM.rpm > 0.5) {
+                const radPerSec = (SIM.rpm / 60) * Math.PI * 2 * 0.25;
+                meshes.motorShaftGroup.rotation.x += radPerSec * dt;
+            }
+            meshes.windingBarsU1V1W1.forEach(bar => {
+                if (SIM.state === 'STAR') {
+                    bar.material.emissive.setHex(0xeab308);
+                    bar.material.emissiveIntensity = 0.75;
+                } else if (SIM.state === 'DELTA') {
+                    bar.material.emissive.setHex(0xef4444);
+                    bar.material.emissiveIntensity = 1.25;
+                } else {
+                    bar.material.emissiveIntensity = 0;
+                }
+            });
+            if (meshes.starShortingBridge) {
+                meshes.starShortingBridge.material.emissiveIntensity = SIM.mcY ? 1.2 : 0.1;
+            }
+
+            // 9. Animated 3D Current Particles along Active Cables
+            currentParticles.forEach(p => {
+                let active = false;
+                if (p.wireKey && !SIM.completedWires.has(p.wireKey)) {
+                    active = false;
+                } else if (p.groupType === 'FEEDER') {
+                    active = SIM.mccbOn && (SIM.mcM || SIM.mcD);
+                } else if (p.groupType === 'U1V1W1') {
+                    active = SIM.mcM;
+                } else if (p.groupType === 'STAR') {
+                    active = SIM.mcM && SIM.mcY;
+                } else if (p.groupType === 'DELTA') {
+                    active = SIM.mcM && SIM.mcD;
+                }
+
+                p.mesh.visible = active;
+                if (active) {
+                    const speed = SIM.state === 'STAR' ? 0.55 : 0.95;
+                    p.t = (p.t + dt * speed) % 1.0;
+                    const pos = p.curve.getPointAt(p.t);
+                    p.mesh.position.copy(pos);
+                }
+            });
+
+            // 10. Project 3D Floating Component Tags
+            labelAnchors.forEach(item => {
+                if (!SIM.show3DLabels) {
+                    item.el.style.opacity = '0';
+                    return;
+                }
+                const v = item.pos.clone().project(camera);
+                if (v.z > 1) {
+                    item.el.style.opacity = '0';
+                    return;
+                }
+                const x = (v.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-(v.y * 0.5) + 0.5) * window.innerHeight;
+                item.el.style.transform = `translate(-50%, -100%) translate(${x}px, ${y}px)`;
+                item.el.style.opacity = '1';
+            });
+        }
+
+        /***********************************************************************
+         * 10. CAMERA PRESETS, RAYCASTING & VIEWPORT CONTROLS
+         ***********************************************************************/
+        function setCameraPreset(preset) {
+            if (preset === 'OVERVIEW') {
+                camCtrl.desiredTheta = 0.08;
+                camCtrl.desiredPhi = 1.20;
+                camCtrl.desiredRadius = 19.5;
+                camCtrl.desiredTarget.set(1.5, 0.2, 0);
+            } else if (preset === 'CONTACTORS') {
+                camCtrl.desiredTheta = 0.05;
+                camCtrl.desiredPhi = 1.24;
+                camCtrl.desiredRadius = 11.5;
+                camCtrl.desiredTarget.set(-0.8, -1.0, 0.8);
+            } else if (preset === 'MOTOR_TERM') {
+                camCtrl.desiredTheta = -0.25;
+                camCtrl.desiredPhi = 1.05;
+                camCtrl.desiredRadius = 9.2;
+                camCtrl.desiredTarget.set(9.3, -0.3, 0.5);
+            } else if (preset === 'CONTROL_BOX') {
+                camCtrl.desiredTheta = 0.02;
+                camCtrl.desiredPhi = 1.22;
+                camCtrl.desiredRadius = 11.8;
+                camCtrl.desiredTarget.set(-0.5, 3.6, 0.6);
+            }
+        }
+
+        function toggle3DLabels() {
+            SIM.show3DLabels = false;
+        }
+
+        function toggleAudio() {
+            SIM.audioEnabled = !SIM.audioEnabled;
+            const icon = document.getElementById('sound-icon');
+            const btn = document.getElementById('btn-toggle-sound');
+            if (SIM.audioEnabled) {
+                icon.className = 'fa-solid fa-volume-high';
+                btn.classList.replace('text-slate-500', 'text-emerald-400');
+            } else {
+                icon.className = 'fa-solid fa-volume-xmark';
+                btn.classList.replace('text-emerald-400', 'text-slate-500');
+                updateMotorAcoustics();
+            }
+        }
+
+        let leftPanelOpen = false;
+        let rightPanelOpen = false;
+        function toggleLeftPanel() {
+            leftPanelOpen = !leftPanelOpen;
+            const el = document.getElementById('left-panel');
+            if (leftPanelOpen) el.classList.replace('hidden', 'flex');
+            else el.classList.replace('flex', 'hidden');
+        }
+        function toggleRightPanel() {
+            rightPanelOpen = !rightPanelOpen;
+            const el = document.getElementById('right-panel');
+            if (rightPanelOpen) el.classList.remove('hidden');
+            else el.classList.add('hidden');
+        }
+
+        function onPointerDown(e) {
+            camCtrl.isDown = true;
+            camCtrl.button = e.button;
+            camCtrl.lastX = e.clientX;
+            camCtrl.lastY = e.clientY;
+            camCtrl.dragMoved = false;
+            initAudioIfNeeded();
+        }
+
+        function onPointerMove(e) {
+            const dx = e.clientX - camCtrl.lastX;
+            const dy = e.clientY - camCtrl.lastY;
+
+            if (camCtrl.isDown) {
+                if (Math.abs(dx) > 3 || Math.abs(dy) > 3) camCtrl.dragMoved = true;
+                if (camCtrl.button === 0) {
+                    camCtrl.desiredTheta -= dx * 0.0065;
+                    camCtrl.desiredPhi = Math.max(0.35, Math.min(1.65, camCtrl.desiredPhi - dy * 0.0065));
+                } else if (camCtrl.button === 2) {
+                    camCtrl.desiredTarget.x -= dx * 0.022;
+                    camCtrl.desiredTarget.y += dy * 0.022;
+                }
+                camCtrl.lastX = e.clientX;
+                camCtrl.lastY = e.clientY;
+                return;
+            }
+
+            // Hover Raycast Cursor Change Only (No rectangular tooltip box blocking the 3D view)
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(interactables, false);
+            renderer.domElement.style.cursor = hits.length > 0 ? 'pointer' : 'grab';
+        }
+
+        function onPointerUp(e) {
+            if (!camCtrl.dragMoved && camCtrl.button === 0) {
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const hits = raycaster.intersectObjects(interactables, false);
+                if (hits.length > 0 && hits[0].object.userData.onClick) {
+                    hits[0].object.userData.onClick();
+                }
+            }
+            camCtrl.isDown = false;
+        }
+
+        function onMouseWheel(e) {
+            e.preventDefault();
+            camCtrl.desiredRadius = Math.max(6.5, Math.min(38.0, camCtrl.desiredRadius + e.deltaY * 0.012));
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        /***********************************************************************
+         * 11. MAIN ANIMATION LOOP (Started on window.onload)
+         ***********************************************************************/
+        let lastTime = performance.now();
+        let totalElapsed = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = performance.now();
+            const dt = Math.min(0.05, (now - lastTime) / 1000);
+            lastTime = now;
+            totalElapsed += dt;
+
+            stepSimulationPhysics(dt);
+            update3DHardwareVisuals(dt, totalElapsed);
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            initThreeScene();
+            updateUIAndSchematic();
+            animate();
+        };
+    </script>
+</body>
+</html>
